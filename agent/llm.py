@@ -41,7 +41,7 @@ class OllamaBackend:
             "stream": False,
             "options": {"temperature": float(os.environ.get("ZT_TEMPERATURE", "0.2"))},
         }
-        async with httpx.AsyncClient(timeout=300) as client:
+        async with httpx.AsyncClient(timeout=float(os.environ.get("ZT_LLM_TIMEOUT", "600"))) as client:
             for attempt in range(3):  # Ollama returns 500 when the model emits a malformed tool call
                 resp = await client.post(f"{self.url}/api/chat", json=payload)
                 if resp.status_code < 500:

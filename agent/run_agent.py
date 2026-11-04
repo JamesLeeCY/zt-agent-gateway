@@ -84,9 +84,11 @@ class GatewayTransport:
         resp = (await self.http.post("/v1/tools/call", json={
             "session_id": session_id, "subject": self.subject, "tool": name, "args": args})).raise_for_status().json()
         if resp["status"] == "pending_approval":
-            approved = await approver(name, args, resp["reasons"])
+            asked = resp["reasons"]
+            approved = await approver(name, args, asked)
             resp = (await self.http.post(f"/v1/approvals/{resp['approval_id']}", json={
                 "approve": approved, "approver": self.subject["on_behalf_of"]})).raise_for_status().json()
+            resp["reasons"] = asked + [r for r in resp.get("reasons", []) if r not in asked]
             resp["approval_asked"] = True
         if resp["status"] == "ok":
             return {**resp, "content": resp["result"]}

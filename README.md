@@ -57,6 +57,7 @@ python -m demo.run_demo attack
 | `python -m demo.run_demo control` | 對照組：正常來信、寄給行內同事 → R4 理專確認後送出 |
 | `python -m demo.run_demo accept --runs 5` | 驗收：統計 5 次有／無 gateway 的外洩次數 |
 | `python -m demo.run_demo audit` | 印出完整稽核日誌並驗證 hash chain |
+| `python -m demo.campaign run --per-variant 5` | 6 種注入手法 × 5 次 × 有／無 gateway，可中斷續跑；`report` 產生統計表 |
 
 共用參數：`--llm ollama|anthropic|scripted`（`scripted` 是決定性的「天真 agent」，不需 LLM，CI 用）、`--approve ask|yes|no`。
 

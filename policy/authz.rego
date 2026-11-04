@@ -4,7 +4,7 @@ package agent.authz
 
 import rego.v1
 
-policy_version := "2026-11-04.1"
+policy_version := "2026-11-04.2"
 
 high_risk_tools := {"send_email"}
 

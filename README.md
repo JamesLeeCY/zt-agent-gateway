@@ -7,7 +7,7 @@
 ## 架構（NIST SP 800-207 套用到 agent）
 
 ```
-理專 ─▶ Agent (LLM tool calling) ─▶ Gateway = PEP ─┬─▶ OPA = PDP  (policy/authz.rego, R1–R6)
+理專 ─▶ Agent (LLM tool calling) ─▶ Gateway = PEP ─┬─▶ OPA = PDP  (policy/*.rego, R1–R7)
                                       │             ├─▶ Context Tracker (tainted / pii_accessed / call_count)
                                       │             └─▶ Audit Log (JSONL, args 只存 hash, hash chain)
                                       ▼
@@ -18,8 +18,9 @@
 2. Gateway 綁定身分參數（例如信箱 = `on_behalf_of`）、計數、組決策輸入。
 3. OPA 回傳 `allow` / `deny` / `require_approval` + 理由；收不到決策就 deny（fail closed）。
 4. allow → 轉發 MCP；require_approval → 推給理專確認（確認時重新評估，人工核准蓋不過 deny）；deny → 拒絕訊息回給 agent。
-5. 工具結果回來後更新情境：讀信 → `tainted`，查個資 → `pii_accessed`（不可回復）。
-6. 每一步寫入稽核日誌。
+5. 工具結果回來後更新情境：讀信 → `tainted`，查個資 → `pii_accessed`（不可回復），並記下個資欄位的 HMAC 指紋（不存明文）。
+6. Agent 的最終回覆也要經過 Gateway（`/v1/output`）：比對指紋（忽略大小寫、空白、標點），由 OPA 決定是否遮蔽（R7）；PDP 無回應時一律遮蔽。
+7. 每一步寫入稽核日誌。
 
 | 規則 | 條件 | 決策 |
 | --- | --- | --- |
@@ -29,6 +30,7 @@
 | R4 | tainted 後呼叫高風險工具 | require_approval |
 | R5 | 寄往外部網域 | require_approval |
 | R6 | 單一 session 超過 20 次呼叫 | deny |
+| R7 | tainted 後，agent 最終回覆含本 session 取得的個資 | redact（輸出端 DLP） |
 
 ## 快速開始
 
@@ -81,7 +83,7 @@ docker run --rm -v "$PWD/policy:/policy:ro" openpolicyagent/opa:1.10.1-static te
 pytest -v
 ```
 
-`opa test`：18 個案例，每條規則至少一個放行與一個拒絕（含多收件人走私、仿冒網域、未知角色、空輸入）。pytest：情境追蹤、稽核 hash chain、端到端（直連外洩、R3 阻擋、R4 核准／拒絕、R2、R6、身分綁定、fail closed）；需要 OPA 的測試在 OPA 未啟動時自動略過。CI 見 [.github/workflows/ci.yml](.github/workflows/ci.yml)。
+`opa test`：23 個案例，每條規則至少一個放行與一個拒絕（含多收件人走私、仿冒網域、未知角色、空輸入）。pytest：情境追蹤、稽核 hash chain、端到端（直連外洩、R3 阻擋、R4 核准／拒絕、R2、R6、身分綁定、fail closed、輸出端 DLP）；需要 OPA 的測試在 OPA 未啟動時自動略過。CI 見 [.github/workflows/ci.yml](.github/workflows/ci.yml)。
 
 ## 驗收結果
 
@@ -96,7 +98,8 @@ gateway/context.py        # taint / pii / call_count（SQLite，flag 只能 0→
 gateway/audit.py          # JSON Lines 稽核日誌 + hash chain
 gateway/pdp.py            # OPA client，任何錯誤即 deny
 tools/*_server.py         # 3 個 mock MCP server（FastMCP, stdio）
-policy/authz.rego         # R1–R6；authz_test.rego：opa test
+policy/authz.rego         # R1–R6；output.rego：R7；*_test.rego：opa test
+gateway/dlp.py            # 輸出端 DLP：個資指紋、比對、遮蔽
 data/                     # 合成客戶資料、正常／惡意信件
 demo/                     # run_demo.py / run_demo.sh
 docs/                     # 威脅模型、控制矩陣、驗收結果
@@ -104,4 +107,4 @@ docs/                     # 威脅模型、控制矩陣、驗收結果
 
 ## 後續擴充
 
-紅隊測試集與攻擊成功率／誤擋率統計、輸出端個資偵測（草稿內容 DLP）、ML 行為異常分數接入 PDP、真實 IdP 與短效憑證、稽核日誌送 WORM 儲存。
+紅隊測試集與攻擊成功率／誤擋率統計、欄位層級的資料來源追蹤（取代 session 層級 taint）、ML 行為異常分數接入 PDP、真實 IdP 與短效憑證、稽核日誌送 WORM 儲存。

@@ -10,8 +10,9 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
+from gateway import dlp
 from gateway.audit import AuditLog
-from gateway.context import ContextTracker
+from gateway.context import PII_SOURCES, ContextTracker
 from gateway.pdp import PdpClient
 from tools.paths import VAR_DIR
 from tools.registry import BOUND_ARGS, McpPool, agent_visible_tools
@@ -30,6 +31,12 @@ class ToolCall(BaseModel):
     subject: Subject
     tool: str
     args: dict = Field(default_factory=dict)
+
+
+class FinalOutput(BaseModel):
+    session_id: str
+    subject: Subject
+    text: str
 
 
 class ApprovalDecision(BaseModel):
@@ -60,11 +67,14 @@ async def lifespan(app: FastAPI):
     app.state.tracker = ContextTracker(VAR_DIR / "context.db")
     app.state.audit = AuditLog(VAR_DIR / "audit.jsonl")
     app.state.pdp = PdpClient(OPA_URL)
+    app.state.output_pdp = PdpClient(OPA_URL, "agent/output", valid_results={"allow", "redact"},
+                                     fail_result="redact")
     app.state.pending = {}
     async with McpPool() as pool:
         app.state.pool = pool
         yield
     await app.state.pdp.aclose()
+    await app.state.output_pdp.aclose()
 
 
 app = FastAPI(title="Zero-Trust Agent Gateway (PEP)", lifespan=lifespan)
@@ -83,6 +93,8 @@ async def list_tools():
 async def _execute(call: ToolCall, args: dict, decision: dict) -> dict:
     s = app.state
     result = await s.pool.call(call.tool, args)
+    if call.tool in PII_SOURCES:
+        s.tracker.add_fingerprints(call.session_id, dlp.fingerprints(result))
     ctx = s.tracker.record_result(call.session_id, call.tool)
     s.audit.write(event="executed", session_id=call.session_id, subject=call.subject.model_dump(),
                   tool=call.tool, args=args, context=ctx, decision="executed",
@@ -143,3 +155,24 @@ async def resolve_approval(approval_id: str, body: ApprovalDecision):
     if verdict != "approved":
         return {"status": verdict, "reasons": reasons}
     return await _execute(call, args, decision)
+
+
+@app.post("/v1/output")
+async def check_output(out: FinalOutput):
+    """Output-side DLP (R7): the agent's final answer passes the gateway before it reaches the user.
+
+    PII this session obtained from tools is matched by fingerprint; the PDP decides whether to redact.
+    If the PDP cannot be reached, matches are redacted (fail closed).
+    """
+    s = app.state
+    ctx = s.tracker.get(out.session_id)
+    spans = dlp.scan(out.text, s.tracker.fingerprints(out.session_id))
+    fields = sorted({f for _, _, f in spans})
+    decision = await s.output_pdp.decide({"subject": out.subject.model_dump(), "context": ctx,
+                                          "output": {"pii_fields": fields, "length": len(out.text)}})
+    text = dlp.redact(out.text, spans) if decision["result"] != "allow" else out.text
+    s.audit.write(event="output", session_id=out.session_id, subject=out.subject.model_dump(),
+                  tool="final_output", args={"text": out.text}, context=ctx, decision=decision["result"],
+                  reason=decision["reasons"], policy_version=decision["policy_version"],
+                  pii_fields=fields, redactions=len(spans) if text != out.text else 0)
+    return {"status": decision["result"], "text": text, "pii_fields": fields, "reasons": decision["reasons"]}

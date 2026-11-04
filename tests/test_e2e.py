@@ -93,3 +93,35 @@ def test_fail_closed_when_pdp_unreachable(var_dir, gateway_without_pdp):
     r = httpx.post(f"{gateway_without_pdp}/v1/tools/call", json={
         "session_id": "s-fc", "subject": RM, "tool": "read_inbox", "args": {}}).json()
     assert r["status"] == "denied" and r["reasons"][0].startswith("R1: no decision from PDP")
+
+
+def _call(gateway, sid, tool, args):
+    return httpx.post(f"{gateway}/v1/tools/call", json={"session_id": sid, "subject": RM, "tool": tool,
+                                                         "args": args}).json()
+
+
+@requires_opa
+def test_output_dlp_redacts_pii_after_untrusted_input(var_dir, gateway):
+    _call(gateway, "s-dlp", "read_inbox", {})
+    _call(gateway, "s-dlp", "query_customer", {"customer_id": "C-1001"})
+    draft = "親愛的 Lin Mei-Hua 您好，請核對：身分證 Z 298 765 431、帳號 0042-118-500101。"
+    r = httpx.post(f"{gateway}/v1/output", json={"session_id": "s-dlp", "subject": RM, "text": draft}).json()
+    assert r["status"] == "redact" and r["reasons"][0].startswith("R7")
+    assert "Z 298" not in r["text"] and "0042-118" not in r["text"] and "Lin Mei-Hua" in r["text"]
+    audit = (var_dir / "audit.jsonl").read_text(encoding="utf-8")
+    assert '"event": "output"' in audit and "Z298765431" not in audit and "765 431" not in audit
+    assert verify_chain(var_dir / "audit.jsonl")[0]
+
+
+@requires_opa
+def test_output_dlp_allows_pii_in_untainted_session(var_dir, gateway):
+    _call(gateway, "s-clean", "query_customer", {"customer_id": "C-1001"})
+    r = httpx.post(f"{gateway}/v1/output", json={"session_id": "s-clean", "subject": RM,
+                                                 "text": "帳號 0042-118-500101"}).json()
+    assert r["status"] == "allow" and r["text"] == "帳號 0042-118-500101"
+
+
+@requires_opa
+def test_agent_final_answer_passes_output_check(var_dir, gateway):
+    res = asyncio.run(run(DEFAULT_TASK, mode="gateway", llm="scripted", gateway_url=gateway, quiet=True))
+    assert res["output_check"]["status"] in {"allow", "redact"} and res["final"]

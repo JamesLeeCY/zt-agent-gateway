@@ -22,6 +22,12 @@ class ContextTracker:
             " pii_accessed INTEGER NOT NULL DEFAULT 0,"
             " call_count INTEGER NOT NULL DEFAULT 0)"
         )
+        # Keyed fingerprints (HMAC) of PII values the session has seen; never the values themselves.
+        self._db.execute(
+            "CREATE TABLE IF NOT EXISTS pii_fp ("
+            " session_id TEXT NOT NULL, field TEXT NOT NULL, length INTEGER NOT NULL, digest TEXT NOT NULL,"
+            " PRIMARY KEY (session_id, digest))"
+        )
         self._db.commit()
 
     def get(self, session_id: str) -> dict:
@@ -51,3 +57,13 @@ class ContextTracker:
                 self._db.execute("UPDATE session SET pii_accessed = 1 WHERE session_id = ?", (session_id,))
             self._db.commit()
         return self.get(session_id)
+
+    def add_fingerprints(self, session_id: str, fps: list[tuple[str, int, str]]) -> None:
+        with self._lock:
+            self._db.executemany("INSERT OR IGNORE INTO pii_fp VALUES (?, ?, ?, ?)",
+                                 [(session_id, f, n, d) for f, n, d in fps])
+            self._db.commit()
+
+    def fingerprints(self, session_id: str) -> list[tuple[str, int, str]]:
+        return [tuple(r) for r in self._db.execute(
+            "SELECT field, length, digest FROM pii_fp WHERE session_id = ?", (session_id,))]

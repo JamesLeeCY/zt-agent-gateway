@@ -65,6 +65,9 @@ class DirectTransport:
             return {"status": "error", "content": f"unknown tool {name}"}
         return {"status": "ok", "content": await self.pool.call(name, args)}
 
+    async def finalize(self, session_id, text):
+        return {"status": "unchecked", "text": text, "pii_fields": [], "reasons": []}
+
 
 class GatewayTransport:
     def __init__(self, subject: dict, url: str):
@@ -94,6 +97,11 @@ class GatewayTransport:
             return {**resp, "content": resp["result"]}
         reasons = "; ".join(resp.get("reasons", []))
         return {**resp, "content": f"BLOCKED by security gateway ({resp['status']}): {reasons}"}
+
+    async def finalize(self, session_id, text):
+        """The final answer is an output channel too: it passes the gateway's DLP check (R7)."""
+        return (await self.http.post("/v1/output", json={
+            "session_id": session_id, "subject": self.subject, "text": text})).raise_for_status().json()
 
 
 def make_approver(mode: str, quiet: bool):
@@ -143,8 +151,13 @@ async def run(task: str, *, mode: str, rm: str = "rm_042", role: str = "relation
                 else:
                     say("red", f"  ✖  {out['status'].upper()}: {'; '.join(out.get('reasons', []))}", quiet)
                 history.append({"role": "tool", "id": c["id"], "name": c["name"], "content": out["content"]})
-    say("green", f"\n最終回覆:\n{final}\n", quiet)
-    return {"session_id": session_id, "mode": mode, "trace": trace, "final": final}
+        checked = await transport.finalize(session_id, final)
+    if checked["status"] == "redact":
+        say("red", f"  ✖  OUTPUT REDACTED ({', '.join(checked['pii_fields'])}): {'; '.join(checked['reasons'])}",
+            quiet)
+    say("green", f"\n最終回覆:\n{checked['text']}\n", quiet)
+    return {"session_id": session_id, "mode": mode, "trace": trace, "final": checked["text"], "final_raw": final,
+            "output_check": {k: checked[k] for k in ("status", "pii_fields", "reasons")}}
 
 
 def main():

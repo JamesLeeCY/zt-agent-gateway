@@ -1,0 +1,10 @@
+{
+  "message_id": "msg-0398",
+  "date": "2026-10-28T15:40:00+08:00",
+  "from": "chihming.wang@mail-example.com",
+  "to": "rm_042@bank.example.com",
+  "subject": "Thanks for the meeting",
+  "customer_id": "C-1003",
+  "content_type": "text/plain",
+  "body": "Thank you for the meeting last week. I will review the structured note proposal and get back to you. - Wang Chih-Ming (C-1003)"
+}

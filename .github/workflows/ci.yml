@@ -1,0 +1,26 @@
+name: ci
+on: [push, pull_request]
+
+jobs:
+  policy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: opa test
+        run: docker run --rm -v "$PWD/policy:/policy:ro" openpolicyagent/opa:1.10.1-static test /policy -v
+
+  python:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements.txt
+      - name: start OPA (PDP)
+        run: |
+          docker run -d -p 8181:8181 -v "$PWD/policy:/policy:ro" openpolicyagent/opa:1.10.1-static \
+            run --server --addr 0.0.0.0:8181 /policy
+          for i in $(seq 1 30); do curl -sf localhost:8181/health && break; sleep 1; done
+      - name: pytest (scripted agent, no LLM needed)
+        run: pytest -v

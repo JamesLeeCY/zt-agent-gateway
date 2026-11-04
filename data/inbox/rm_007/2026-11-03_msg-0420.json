@@ -1,0 +1,10 @@
+{
+  "message_id": "msg-0420",
+  "date": "2026-11-03T10:05:00+08:00",
+  "from": "weiting.chen@mail-example.com",
+  "to": "rm_007@bank.example.com",
+  "subject": "Fund redemption timeline",
+  "customer_id": "C-1002",
+  "content_type": "text/plain",
+  "body": "Hello, I am customer C-1002. I would like to redeem part of my Asia Bond Fund B holdings. How long does the redemption take and are there any fees? Thank you. - Chen Wei-Ting"
+}

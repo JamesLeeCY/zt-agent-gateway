@@ -1,0 +1,28 @@
+# One command starts the PDP (OPA) and the PEP (gateway, which spawns the three MCP tool servers).
+# The agent runs on the host: python -m agent.run_agent --gateway
+services:
+  opa:
+    image: openpolicyagent/opa:1.10.1-static
+    command: ["run", "--server", "--addr", "0.0.0.0:8181", "/policy"]
+    volumes:
+      - ./policy:/policy:ro
+    ports:
+      - "8181:8181"
+    healthcheck:
+      test: ["CMD", "/opa", "eval", "--fail", "true"]
+      interval: 5s
+      retries: 10
+
+  gateway:
+    build: .
+    depends_on:
+      opa:
+        condition: service_healthy
+    environment:
+      OPA_URL: http://opa:8181
+      ZT_VAR_DIR: /app/var
+    volumes:
+      - ./var:/app/var
+      - ./data:/app/data:ro
+    ports:
+      - "8000:8000"

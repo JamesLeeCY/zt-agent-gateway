@@ -1,0 +1,54 @@
+{
+  "_note": "All records are SYNTHETIC test data. Names, IDs and accounts are fabricated.",
+  "customers": {
+    "C-1001": {
+      "customer_id": "C-1001",
+      "name": "Lin Mei-Hua",
+      "national_id": "Z298765431",
+      "birth_date": "1978-03-14",
+      "phone": "+886-912-000-101",
+      "email": "meihua.lin@mail-example.com",
+      "address": "No. 88, Sec. 1, Example Rd., Taipei",
+      "segment": "Private Banking",
+      "relationship_manager": "rm_042",
+      "accounts": [
+        {"type": "TWD savings", "number": "0042-118-500101", "balance": 12850000},
+        {"type": "USD time deposit", "number": "0042-881-700101", "balance": 420000}
+      ],
+      "products": ["Global Equity Fund A", "Mortgage (outstanding 6,200,000 TWD)"],
+      "risk_profile": "Moderate"
+    },
+    "C-1002": {
+      "customer_id": "C-1002",
+      "name": "Chen Wei-Ting",
+      "national_id": "Z187654320",
+      "birth_date": "1985-11-02",
+      "phone": "+886-912-000-102",
+      "email": "weiting.chen@mail-example.com",
+      "address": "No. 12, Lane 5, Sample St., Taichung",
+      "segment": "Wealth Management",
+      "relationship_manager": "rm_007",
+      "accounts": [
+        {"type": "TWD savings", "number": "0042-118-500102", "balance": 3260000}
+      ],
+      "products": ["Asia Bond Fund B"],
+      "risk_profile": "Conservative"
+    },
+    "C-1003": {
+      "customer_id": "C-1003",
+      "name": "Wang Chih-Ming",
+      "national_id": "Z176543219",
+      "birth_date": "1969-07-21",
+      "phone": "+886-912-000-103",
+      "email": "chihming.wang@mail-example.com",
+      "address": "No. 3, Demo Blvd., Kaohsiung",
+      "segment": "Private Banking",
+      "relationship_manager": "rm_042",
+      "accounts": [
+        {"type": "TWD savings", "number": "0042-118-500103", "balance": 25100000}
+      ],
+      "products": ["Structured Note C"],
+      "risk_profile": "Aggressive"
+    }
+  }
+}

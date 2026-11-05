@@ -91,7 +91,7 @@ test_r4_low_risk_tool_after_taint_allowed if {
 test_r5_approval_external_untainted if {
 	d := authz.decision with input as req(rm, "send_email", attacker_mail, clean)
 	d.result == "require_approval"
-	d.reasons == {"R5: external recipient"}
+	d.reasons == {"R5: recipient not in internal directory"}
 }
 
 test_r5_internal_not_external if {
@@ -117,4 +117,33 @@ test_precedence_deny_over_approval if {
 	d := authz.decision with input as req(rm, "send_email", attacker_mail, tainted_pii)
 	d.result == "deny"
 	not "R4: high-risk tool after untrusted input" in d.reasons
+}
+
+# --- Recipient allowlist (directory) ---------------------------------------
+relay_mail := {"to": "kyc-relay@bank.example.com", "body_len": 812}
+
+test_r3_deny_unlisted_internal_mailbox if {
+	# On our domain but not in the directory (e.g. an auto-forwarding relay): treated as external.
+	d := authz.decision with input as req(rm, "send_email", relay_mail, tainted_pii)
+	d.result == "deny"
+	"R3: tainted session sending PII externally" in d.reasons
+}
+
+test_r5_approval_unlisted_internal_mailbox_untainted if {
+	d := authz.decision with input as req(rm, "send_email", relay_mail, clean)
+	d.result == "require_approval"
+	d.reasons == {"R5: recipient not in internal directory"}
+}
+
+test_directory_member_allowed_after_adding if {
+	authz.decision.result == "allow" with input as req(rm, "send_email", relay_mail, clean)
+		with data.agent.directory.internal_mailboxes as {"kyc-relay@bank.example.com"}
+}
+
+test_recipient_class if {
+	authz.recipient_class == "internal_directory" with input as req(rm, "send_email", internal_mail, clean)
+	authz.recipient_class == "internal_domain_unlisted" with input as req(rm, "send_email", relay_mail, clean)
+	authz.recipient_class == "external" with input as req(rm, "send_email", attacker_mail, clean)
+	authz.recipient_class == "malformed" with input as req(rm, "send_email", {"to": "a@x.net,b@bank.example.com"}, clean)
+	authz.recipient_class == "none" with input as req(rm, "read_inbox", {}, clean)
 }

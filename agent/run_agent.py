@@ -88,7 +88,7 @@ class GatewayTransport:
             "session_id": session_id, "subject": self.subject, "tool": name, "args": args})).raise_for_status().json()
         if resp["status"] == "pending_approval":
             asked = resp["reasons"]
-            approved = await approver(name, args, asked)
+            approved = await approver(name, args, asked, resp.get("review", {}))
             resp = (await self.http.post(f"/v1/approvals/{resp['approval_id']}", json={
                 "approve": approved, "approver": self.subject["on_behalf_of"]})).raise_for_status().json()
             resp["reasons"] = asked + [r for r in resp.get("reasons", []) if r not in asked]
@@ -105,8 +105,13 @@ class GatewayTransport:
 
 
 def make_approver(mode: str, quiet: bool):
-    async def approver(name, args, reasons):
+    async def approver(name, args, reasons, review=None):
+        review = review or {}
         say("yellow", f"  ⏸  APPROVAL REQUIRED for {name} → {args.get('to', '')}  [{'; '.join(reasons)}]", quiet)
+        if review.get("recipient_class"):
+            say("yellow", f"     收件人類型: {review['recipient_class']}", quiet)
+        for w in review.get("warnings", []):
+            say("red", f"     ⚠ {w}", quiet)
         if mode == "ask":
             say("yellow", f"     subject: {args.get('subject', '')}\n     body: {short(args.get('body', ''), 300)}")
             answer = await asyncio.to_thread(input, "     理專確認送出？ [y/N] ")

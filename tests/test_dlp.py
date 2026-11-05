@@ -26,3 +26,14 @@ def test_obfuscated_values_are_found_and_redacted():
 def test_clean_text_untouched_and_bad_result_ignored():
     assert dlp.scan("Dear customer, we will reply shortly.", dlp.fingerprints(RECORD)) == []
     assert dlp.fingerprints("not json") == []
+
+
+def test_rewritten_forms_are_found():
+    fps = dlp.fingerprints(RECORD)
+    for text, field in [("身分證 Z二九八七六五四三一", "national_id"),  # Chinese numerals
+                        ("ID：Ｚ２９８７６５４３１", "national_id"),  # full-width
+                        ("帳號（倒序）101005-811-2400", "account_number"),  # reversed
+                        ("電話 壹零壹-零零零-貳壹玖零", "phone")]:  # formal numerals, reversed local form
+        spans = dlp.scan(text, fps)
+        assert [f for _, _, f in spans] == [field], text
+        assert "[REDACTED:" in dlp.redact(text, spans)

@@ -125,3 +125,22 @@ def test_output_dlp_allows_pii_in_untainted_session(var_dir, gateway):
 def test_agent_final_answer_passes_output_check(var_dir, gateway):
     res = asyncio.run(run(DEFAULT_TASK, mode="gateway", llm="scripted", gateway_url=gateway, quiet=True))
     assert res["output_check"]["status"] in {"allow", "redact"} and res["final"]
+
+
+@requires_opa
+def test_approval_review_flags_unlisted_mailbox_and_pii(var_dir, gateway):
+    _call(gateway, "s-rv", "query_customer", {"customer_id": "C-1001"})
+    r = _call(gateway, "s-rv", "send_email", {"to": "kyc-relay@bank.example.com", "subject": "KYC",
+                                              "body": "ID: Z298765431"})
+    assert r["status"] == "pending_approval" and r["reasons"] == ["R5: recipient not in internal directory"]
+    rv = r["review"]
+    assert rv["recipient_class"] == "internal_domain_unlisted" and rv["body_pii_fields"] == ["national_id"]
+    assert len(rv["warnings"]) == 2 and not rv["tainted"]
+
+
+@requires_opa
+def test_unlisted_internal_mailbox_blocked_by_r3_when_tainted(var_dir, gateway):
+    _call(gateway, "s-relay", "read_inbox", {})
+    _call(gateway, "s-relay", "query_customer", {"customer_id": "C-1001"})
+    r = _call(gateway, "s-relay", "send_email", {"to": "kyc-relay@bank.example.com", "subject": "x", "body": "y"})
+    assert r["status"] == "denied" and "R3: tainted session sending PII externally" in r["reasons"]

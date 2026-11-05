@@ -24,6 +24,7 @@ class PdpClient:
                 "result": result,
                 "reasons": sorted(decision.get("reasons", [])),
                 "policy_version": doc.get("policy_version", "unknown"),
+                "recipient_class": doc.get("recipient_class"),
             }
         except Exception as exc:  # noqa: BLE001 - fail closed on anything
             return {

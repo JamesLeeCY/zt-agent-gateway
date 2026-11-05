@@ -2,8 +2,10 @@
 
 When a PII tool returns a record, the gateway keeps only keyed fingerprints (HMAC) of its sensitive
 values, never the values. Before the agent's final answer reaches anyone, the gateway scans it for those
-fingerprints. Matching ignores case, spaces and punctuation, so "Z 298 765 431" or "0042118500101"
-still match.
+fingerprints. Matching is done on a canonical form that ignores case, spaces and punctuation, folds
+full-width characters (NFKC) and Chinese numerals to ASCII digits, and also covers values written
+backwards, so "Z 298 765 431", "Ｚ２９８…", "Z二九八七六五四三一" and "134567892Z" all match.
+Paraphrase, partial disclosure (e.g. last four digits) and real encodings (base64, ciphers) do not.
 """
 import hashlib
 import hmac
@@ -11,6 +13,7 @@ import json
 import os
 import re
 import secrets
+import unicodedata
 
 # Fields worth protecting. Name and e-mail are left out on purpose: a reply to the customer
 # legitimately contains them.
@@ -19,9 +22,15 @@ MIN_LEN = 6  # shorter values would match by accident
 
 _KEY = os.environ.get("ZT_DLP_KEY", "").encode() or secrets.token_bytes(32)
 
+_ZH_DIGITS = str.maketrans("零〇一二三四五六七八九壹貳參肆伍陸柒捌玖", "00123456789123456789")
+
+
+def _canon_char(ch: str) -> str:
+    return re.sub(r"[^0-9a-z]", "", unicodedata.normalize("NFKC", ch).lower().translate(_ZH_DIGITS))
+
 
 def _norm(s: str) -> str:
-    return re.sub(r"[^0-9a-z]", "", s.lower())
+    return "".join(_canon_char(ch) for ch in s)
 
 
 def _digest(s: str) -> str:
@@ -33,6 +42,7 @@ def _variants(field: str, value: str) -> set[str]:
     out = {v}
     if field == "phone" and v.startswith("886"):  # +886-912-... is also written 0912-...
         out.add("0" + v[3:])
+    out |= {x[::-1] for x in out}  # written backwards is still the same secret
     return {x for x in out if len(x) >= MIN_LEN}
 
 
@@ -62,9 +72,9 @@ def fingerprints(tool_result: str) -> list[tuple[str, int, str]]:
 def scan(text: str, fps: list[tuple[str, int, str]]) -> list[tuple[int, int, str]]:
     """Spans (start, end, field) in the ORIGINAL text whose normalised form matches a fingerprint."""
     chars, index = [], []
-    for i, ch in enumerate(text.lower()):
-        if re.match(r"[0-9a-z]", ch):
-            chars.append(ch)
+    for i, ch in enumerate(text):
+        for c in _canon_char(ch):
+            chars.append(c)
             index.append(i)
     norm = "".join(chars)
     by_len: dict[int, dict[str, str]] = {}

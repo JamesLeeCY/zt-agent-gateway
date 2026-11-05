@@ -107,6 +107,25 @@ def _decision_input(call: ToolCall, args: dict, ctx: dict) -> dict:
             "context": ctx}
 
 
+def _review(call: ToolCall, args: dict, ctx: dict, decision: dict) -> dict:
+    """What the human approver needs to see to avoid rubber-stamping: why it was flagged, who the
+    recipient really is, and whether this session's PII is in what is about to leave."""
+    body = " ".join(str(args.get(k, "")) for k in ("subject", "body"))
+    fields = sorted({f for _, _, f in dlp.scan(body, app.state.tracker.fingerprints(call.session_id))})
+    warnings = []
+    if decision.get("recipient_class") in {"external", "malformed"}:
+        warnings.append("收件人在行外")
+    elif decision.get("recipient_class") == "internal_domain_unlisted":
+        warnings.append("收件人雖在行內網域，但不在通訊錄（可能是轉寄或共用信箱）")
+    if ctx.get("tainted"):
+        warnings.append("這個 session 讀過外部來信，內容可能受操控")
+    if fields:
+        warnings.append(f"信件內容含本 session 查到的個資：{', '.join(fields)}")
+    return {"tool": call.tool, "recipient": args.get("to"), "recipient_class": decision.get("recipient_class"),
+            "tainted": ctx.get("tainted"), "pii_accessed": ctx.get("pii_accessed"), "body_pii_fields": fields,
+            "rules": decision["reasons"], "warnings": warnings}
+
+
 @app.post("/v1/tools/call")
 async def call_tool(call: ToolCall):
     s = app.state
@@ -118,7 +137,8 @@ async def call_tool(call: ToolCall):
 
     entry = s.audit.write(event="decision", session_id=call.session_id, subject=call.subject.model_dump(),
                           tool=call.tool, args=args, context=ctx, decision=decision["result"],
-                          reason=decision["reasons"], policy_version=decision["policy_version"])
+                          reason=decision["reasons"], policy_version=decision["policy_version"],
+                          recipient_class=decision.get("recipient_class"))
 
     if decision["result"] == "allow":
         return await _execute(call, args, decision)
@@ -126,7 +146,7 @@ async def call_tool(call: ToolCall):
         approval_id = uuid.uuid4().hex[:12]
         s.pending[approval_id] = (call, args)
         return {"status": "pending_approval", "approval_id": approval_id, "reasons": decision["reasons"],
-                "audit_hash": entry["hash"]}
+                "review": _review(call, args, ctx, decision), "audit_hash": entry["hash"]}
     return {"status": "denied", "reasons": decision["reasons"], "audit_hash": entry["hash"]}
 
 

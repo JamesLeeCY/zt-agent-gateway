@@ -4,7 +4,7 @@ package agent.authz
 
 import rego.v1
 
-policy_version := "2026-11-04.2"
+policy_version := "2026-11-05.1"
 
 high_risk_tools := {"send_email"}
 
@@ -17,11 +17,39 @@ role_tools := {
 
 max_calls_per_session := 20
 
-# Exactly one address, on the internal domain. "a@evil.net,b@bank.example.com" is NOT internal.
+recipient := trim_space(lower(input.action.args.to))
+
+# Exactly one well-formed address. "a@evil.net,b@bank.example.com" is not one address.
+single_address if regex.match(`^[^@\s,;<>]+@[^@\s,;<>]+$`, recipient)
+
+# Internal = listed in the directory (allowlist), not merely "ends with the bank's domain":
+# an unlisted mailbox on our domain may be a relay that auto-forwards outside.
 internal_recipient if {
-	to := lower(input.action.args.to)
-	regex.match(`^[^@\s,;<>]+@[^@\s,;<>]+$`, to)
-	endswith(to, concat("", ["@", internal_domain]))
+	single_address
+	recipient in data.agent.directory.internal_mailboxes
+}
+
+# For the human reviewer and the audit trail: what kind of recipient is this?
+default recipient_class := "none"
+
+recipient_class := "internal_directory" if internal_recipient
+
+recipient_class := "internal_domain_unlisted" if {
+	not internal_recipient
+	single_address
+	endswith(recipient, concat("", ["@", internal_domain]))
+}
+
+recipient_class := "external" if {
+	input.action.tool == "send_email"
+	not internal_recipient
+	not endswith(recipient, concat("", ["@", internal_domain]))
+}
+
+recipient_class := "malformed" if {
+	input.action.tool == "send_email"
+	not single_address
+	endswith(recipient, concat("", ["@", internal_domain]))
 }
 
 external_recipient if {
@@ -53,7 +81,7 @@ approval contains "R4: high-risk tool after untrusted input" if {
 }
 
 # R5 risk tiering: any external recipient needs a human.
-approval contains "R5: external recipient" if external_recipient
+approval contains "R5: recipient not in internal directory" if external_recipient
 
 # R1 default deny (also enforced by the gateway when no decision comes back).
 default decision := {"result": "deny", "reasons": {"R1: no rule allowed the request"}}

@@ -19,7 +19,7 @@
 3. OPA 回傳 `allow` / `deny` / `require_approval` + 理由；收不到決策就 deny（fail closed）。
 4. allow → 轉發 MCP；require_approval → 推給理專確認，並附上觸發的規則、收件人類型（通訊錄內／行內未列名／行外）、信件是否含本 session 查到的個資（確認時重新評估，人工核准蓋不過 deny）；deny → 拒絕訊息回給 agent。
 5. 工具結果回來後更新情境：讀信 → `tainted`，查個資 → `pii_accessed`（不可回復），並記下個資欄位的 HMAC 指紋（不存明文）。
-6. Agent 的最終回覆也要經過 Gateway（`/v1/output`）：比對指紋（忽略大小寫、空白、標點），由 OPA 決定是否遮蔽（R7）；PDP 無回應時一律遮蔽。
+6. Agent 的最終回覆也要經過 Gateway（`/v1/output`）：比對指紋，由 OPA 決定是否遮蔽（R7）；PDP 無回應時一律遮蔽。比對是決定性的（不用模型）：完整值（忽略大小寫、空白、標點，全形、中文數字、英文數字詞都轉成阿拉伯數字，也比對倒序）、拼湊（拆成幾段但合計還原六成以上，單段至少 5 碼；只寫末四碼仍允許）、base64／hex 編碼後的內容。
 7. 每一步寫入稽核日誌。
 
 | 規則 | 條件 | 決策 |
@@ -59,7 +59,7 @@ python -m demo.run_demo attack
 | `python -m demo.run_demo control` | 對照組：正常來信、寄給行內同事 → R4 理專確認後送出 |
 | `python -m demo.run_demo accept --runs 5` | 驗收：統計 5 次有／無 gateway 的外洩次數 |
 | `python -m demo.run_demo audit` | 印出完整稽核日誌並驗證 hash chain |
-| `python -m demo.campaign run --per-variant 5` | 8 種注入手法（V7、V8 專攻輸出端 DLP）× 5 次 × 有／無 gateway，可中斷續跑；`--variants`、`--modes`、`--results` 可只跑部分；`report` 產生統計表 |
+| `python -m demo.campaign run --per-variant 5` | 11 種注入手法（V7–V11 專攻輸出端 DLP）× 5 次 × 有／無 gateway，可中斷續跑；`--variants`、`--modes`、`--results` 可只跑部分；`report` 產生統計表 |
 
 共用參數：`--llm ollama|anthropic|scripted`（`scripted` 是決定性的「天真 agent」，不需 LLM，CI 用）、`--approve ask|yes|no`。
 
@@ -99,7 +99,7 @@ gateway/audit.py          # JSON Lines 稽核日誌 + hash chain
 gateway/pdp.py            # OPA client，任何錯誤即 deny
 tools/*_server.py         # 3 個 mock MCP server（FastMCP, stdio）
 policy/authz.rego         # R1–R6；output.rego：R7；*_test.rego：opa test
-gateway/dlp.py            # 輸出端 DLP：個資指紋、比對、遮蔽
+gateway/dlp.py            # 輸出端 DLP：個資指紋（完整值＋4-gram 片段）、比對、解碼、遮蔽
 data/                     # 合成客戶資料、正常／惡意信件
 demo/                     # run_demo.py / run_demo.sh
 docs/                     # 威脅模型、控制矩陣、驗收結果

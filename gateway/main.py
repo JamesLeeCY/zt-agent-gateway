@@ -111,7 +111,7 @@ def _review(call: ToolCall, args: dict, ctx: dict, decision: dict) -> dict:
     """What the human approver needs to see to avoid rubber-stamping: why it was flagged, who the
     recipient really is, and whether this session's PII is in what is about to leave."""
     body = " ".join(str(args.get(k, "")) for k in ("subject", "body"))
-    fields = sorted({f for _, _, f in dlp.scan(body, app.state.tracker.fingerprints(call.session_id))})
+    fields = sorted({f for _, _, f, _ in dlp.scan(body, app.state.tracker.fingerprints(call.session_id))})
     warnings = []
     if decision.get("recipient_class") in {"external", "malformed"}:
         warnings.append("收件人在行外")
@@ -187,12 +187,14 @@ async def check_output(out: FinalOutput):
     s = app.state
     ctx = s.tracker.get(out.session_id)
     spans = dlp.scan(out.text, s.tracker.fingerprints(out.session_id))
-    fields = sorted({f for _, _, f in spans})
+    fields = sorted({f for _, _, f, _ in spans})
+    kinds = sorted({k for _, _, _, k in spans})
     decision = await s.output_pdp.decide({"subject": out.subject.model_dump(), "context": ctx,
                                           "output": {"pii_fields": fields, "length": len(out.text)}})
     text = dlp.redact(out.text, spans) if decision["result"] != "allow" else out.text
     s.audit.write(event="output", session_id=out.session_id, subject=out.subject.model_dump(),
                   tool="final_output", args={"text": out.text}, context=ctx, decision=decision["result"],
                   reason=decision["reasons"], policy_version=decision["policy_version"],
-                  pii_fields=fields, redactions=len(spans) if text != out.text else 0)
-    return {"status": decision["result"], "text": text, "pii_fields": fields, "reasons": decision["reasons"]}
+                  pii_fields=fields, match_kinds=kinds, redactions=len(spans) if text != out.text else 0)
+    return {"status": decision["result"], "text": text, "pii_fields": fields, "match_kinds": kinds,
+            "reasons": decision["reasons"]}

@@ -24,9 +24,10 @@ class ContextTracker:
         )
         # Keyed fingerprints (HMAC) of PII values the session has seen; never the values themselves.
         self._db.execute(
-            "CREATE TABLE IF NOT EXISTS pii_fp ("
+            "CREATE TABLE IF NOT EXISTS pii_fingerprint ("
             " session_id TEXT NOT NULL, field TEXT NOT NULL, length INTEGER NOT NULL, digest TEXT NOT NULL,"
-            " PRIMARY KEY (session_id, digest))"
+            " ref TEXT NOT NULL, pos INTEGER NOT NULL,"
+            " UNIQUE (session_id, field, digest, ref, pos))"
         )
         self._db.commit()
 
@@ -58,12 +59,13 @@ class ContextTracker:
             self._db.commit()
         return self.get(session_id)
 
-    def add_fingerprints(self, session_id: str, fps: list[tuple[str, int, str]]) -> None:
+    def add_fingerprints(self, session_id: str, fps: list[tuple]) -> None:
+        """Store DLP fingerprints (field, length, hmac, ref, pos); see gateway/dlp.py."""
         with self._lock:
-            self._db.executemany("INSERT OR IGNORE INTO pii_fp VALUES (?, ?, ?, ?)",
-                                 [(session_id, f, n, d) for f, n, d in fps])
+            self._db.executemany("INSERT OR IGNORE INTO pii_fingerprint VALUES (?, ?, ?, ?, ?, ?)",
+                                 [(session_id, *fp) for fp in fps])
             self._db.commit()
 
-    def fingerprints(self, session_id: str) -> list[tuple[str, int, str]]:
+    def fingerprints(self, session_id: str) -> list[tuple]:
         return [tuple(r) for r in self._db.execute(
-            "SELECT field, length, digest FROM pii_fp WHERE session_id = ?", (session_id,))]
+            "SELECT field, length, digest, ref, pos FROM pii_fingerprint WHERE session_id = ?", (session_id,))]

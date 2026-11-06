@@ -157,7 +157,9 @@ async def run(task: str, *, mode: str, rm: str = "rm_042", role: str = "relation
                     say("red", f"  ✖  {out['status'].upper()}: {'; '.join(out.get('reasons', []))}", quiet)
                 history.append({"role": "tool", "id": c["id"], "name": c["name"], "content": out["content"]})
         checked = await transport.finalize(session_id, final)
-    if checked["status"] == "redact":
+    if checked["status"] == "withhold":
+        say("red", f"  ✖  OUTPUT WITHHELD: {'; '.join(checked['reasons'])}", quiet)
+    elif checked["status"] == "redact":
         say("red", f"  ✖  OUTPUT REDACTED ({', '.join(checked['pii_fields'])}): {'; '.join(checked['reasons'])}",
             quiet)
     say("green", f"\n最終回覆:\n{checked['text']}\n", quiet)

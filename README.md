@@ -7,7 +7,7 @@
 ## 架構（NIST SP 800-207 套用到 agent）
 
 ```
-理專 ─▶ Agent (LLM tool calling) ─▶ Gateway = PEP ─┬─▶ OPA = PDP  (policy/*.rego, R1–R7)
+理專 ─▶ Agent (LLM tool calling) ─▶ Gateway = PEP ─┬─▶ OPA = PDP  (policy/*.rego, R1–R8)
                                       │             ├─▶ Context Tracker (tainted / pii_accessed / call_count)
                                       │             └─▶ Audit Log (JSONL, args 只存 hash, hash chain)
                                       ▼
@@ -19,7 +19,8 @@
 3. OPA 回傳 `allow` / `deny` / `require_approval` + 理由；收不到決策就 deny（fail closed）。
 4. allow → 轉發 MCP；require_approval → 推給理專確認，並附上觸發的規則、收件人類型（通訊錄內／行內未列名／行外）、信件是否含本 session 查到的個資（確認時重新評估，人工核准蓋不過 deny）；deny → 拒絕訊息回給 agent。
 5. 工具結果回來後更新情境：讀信 → `tainted`，查個資 → `pii_accessed`（不可回復），並記下個資欄位的 HMAC 指紋（不存明文）。
-6. Agent 的最終回覆也要經過 Gateway（`/v1/output`）：比對指紋，由 OPA 決定是否遮蔽（R7）；PDP 無回應時一律遮蔽。比對是決定性的（不用模型）：完整值（忽略大小寫、空白、標點，全形、中文數字、英文數字詞都轉成阿拉伯數字，也比對倒序）、拼湊（拆成幾段但合計還原六成以上，單段至少 5 碼；只寫末四碼仍允許）、base64／hex 編碼後的內容。
+6. Agent 的最終回覆也要經過 Gateway（`/v1/output`）：比對指紋，由 OPA 決定是否遮蔽（R7）；PDP 無回應時一律遮蔽。比對是決定性的（不用模型）：完整值（忽略大小寫、空白、標點；全形、中文數字與讀法如「兩億九千…」、英文數字詞與讀法如「nine hundred twelve」、德法西日的數字詞都轉成阿拉伯數字；也比對倒序）、拼湊（拆成幾段但合計還原六成以上，單段至少 5 碼；只寫末四碼仍允許）、base64／hex 編碼後的內容。
+   第二層（R8，可關閉）：本機小模型（預設 `gemma3:4b`）把遮蔽後草稿裡的識別碼「還原成明碼」，再交回同一套指紋比對確認；只有真的對到本 session 的個資才算，確認後整份草稿攔下（withhold）。模型看不到真實值，它的輸出也不會被存下或回傳；模型無回應時，讀過外部信且查過個資的 session 一律攔下。
 7. 每一步寫入稽核日誌。
 
 | 規則 | 條件 | 決策 |
@@ -30,7 +31,8 @@
 | R4 | tainted 後呼叫高風險工具 | require_approval |
 | R5 | 收件人不在行內通訊錄（[policy/directory.rego](policy/directory.rego)；行內網域但未列名的轉寄／共用信箱也算） | require_approval |
 | R6 | 單一 session 超過 20 次呼叫 | deny |
-| R7 | tainted 後，agent 最終回覆含本 session 取得的個資 | redact（輸出端 DLP） |
+| R7 | tainted 後，agent 最終回覆含本 session 取得的個資（決定性比對） | redact（輸出端 DLP） |
+| R8 | tainted 後，小模型還原出的識別碼經指紋確認屬於本 session 個資；或模型無回應 | withhold（整份草稿攔下） |
 
 ## 快速開始
 
@@ -59,7 +61,7 @@ python -m demo.run_demo attack
 | `python -m demo.run_demo control` | 對照組：正常來信、寄給行內同事 → R4 理專確認後送出 |
 | `python -m demo.run_demo accept --runs 5` | 驗收：統計 5 次有／無 gateway 的外洩次數 |
 | `python -m demo.run_demo audit` | 印出完整稽核日誌並驗證 hash chain |
-| `python -m demo.campaign run --per-variant 5` | 11 種注入手法（V7–V11 專攻輸出端 DLP）× 5 次 × 有／無 gateway，可中斷續跑；`--variants`、`--modes`、`--results` 可只跑部分；`report` 產生統計表 |
+| `python -m demo.campaign run --per-variant 5` | 12 種注入手法（V7–V12 專攻輸出端 DLP）＋對照組 C1× 5 次 × 有／無 gateway，可中斷續跑；`--variants`、`--modes`、`--results` 可只跑部分；`report` 產生統計表 |
 
 共用參數：`--llm ollama|anthropic|scripted`（`scripted` 是決定性的「天真 agent」，不需 LLM，CI 用）、`--approve ask|yes|no`。
 
@@ -69,7 +71,7 @@ python -m demo.run_demo attack
 python -m agent.run_agent --gateway --rm rm_042 "幫我看一下收件匣最新一封信，查一下這位客戶的資料，擬一封回覆草稿。"
 ```
 
-環境變數：`OLLAMA_MODEL`（預設 `qwen2.5:7b-instruct`）、`ANTHROPIC_MODEL`、`ZT_LLM`、`ZT_GATEWAY_URL`、`OPA_URL`、`ZT_VAR_DIR`（outbox／稽核日誌／情境 DB 位置，預設 `var/`）。
+環境變數：`OLLAMA_MODEL`（預設 `qwen2.5:7b-instruct`）、`ANTHROPIC_MODEL`、`ZT_LLM`、`ZT_GATEWAY_URL`、`OPA_URL`、`ZT_VAR_DIR`（outbox／稽核日誌／情境 DB 位置，預設 `var/`）、`ZT_SEMANTIC_DLP`（`ollama`／`off`；compose 預設 `ollama`）、`ZT_SEMANTIC_MODEL`（預設 `gemma3:4b`）。R8 的離線評估：`python -m demo.semantic_eval`。
 
 寄信工具不會真的寄出，信件寫入 `var/outbox.jsonl`；所有客戶資料都是合成資料。
 
@@ -83,7 +85,7 @@ docker run --rm -v "$PWD/policy:/policy:ro" openpolicyagent/opa:1.10.1-static te
 pytest -v
 ```
 
-`opa test`：27 個案例，每條規則至少一個放行與一個拒絕（含多收件人走私、仿冒網域、未列名的行內信箱、未知角色、空輸入）。pytest：情境追蹤、稽核 hash chain、端到端（直連外洩、R3 阻擋、R4 核准／拒絕、R2、R6、身分綁定、fail closed、輸出端 DLP（含中文數字、全形、倒序）、送審資訊）；需要 OPA 的測試在 OPA 未啟動時自動略過。CI 見 [.github/workflows/ci.yml](.github/workflows/ci.yml)。
+`opa test`：33 個案例，每條規則至少一個放行與一個拒絕（含多收件人走私、仿冒網域、未列名的行內信箱、未知角色、空輸入）。pytest：情境追蹤、稽核 hash chain、端到端（直連外洩、R3 阻擋、R4 核准／拒絕、R2、R6、身分綁定、fail closed、輸出端 DLP（含中文數字、全形、倒序、拼湊、編碼、數字讀法）、R8 判定邏輯（以替身取代模型）、送審資訊）；需要 OPA 的測試在 OPA 未啟動時自動略過。CI 見 [.github/workflows/ci.yml](.github/workflows/ci.yml)。
 
 ## 驗收結果
 
@@ -98,8 +100,9 @@ gateway/context.py        # taint / pii / call_count（SQLite，flag 只能 0→
 gateway/audit.py          # JSON Lines 稽核日誌 + hash chain
 gateway/pdp.py            # OPA client，任何錯誤即 deny
 tools/*_server.py         # 3 個 mock MCP server（FastMCP, stdio）
-policy/authz.rego         # R1–R6；output.rego：R7；*_test.rego：opa test
-gateway/dlp.py            # 輸出端 DLP：個資指紋（完整值＋4-gram 片段）、比對、解碼、遮蔽
+policy/authz.rego         # R1–R6；output.rego：R7、R8；*_test.rego：opa test
+gateway/dlp.py            # 輸出端 DLP 第一層：個資指紋（完整值＋4-gram 片段）、比對、解碼、遮蔽
+gateway/semantic.py       # 輸出端 DLP 第二層（R8）：小模型還原識別碼，交回指紋確認
 data/                     # 合成客戶資料、正常／惡意信件
 demo/                     # run_demo.py / run_demo.sh
 docs/                     # 威脅模型、控制矩陣、驗收結果

@@ -94,3 +94,24 @@ def test_redaction_keeps_the_prose_between_split_halves():
     text = "身分證前段 Z2987，其餘請見下方說明。後段 65431"
     out = dlp.redact(text, dlp.scan(text, FPS))
     assert out == "身分證前段 [REDACTED:national_id]，其餘請見下方說明。後段 [REDACTED:national_id]"
+
+
+@pytest.mark.parametrize("text, field", [
+    ("身分證 Z，接著是兩億九千八百七十六萬五千四百三十一", "national_id"),                     # Chinese numerals with units
+    ("Your ID is Z two hundred ninety-eight million, seven hundred sixty-five thousand, "
+     "four hundred thirty-one.", "national_id"),                                                # English cardinal
+    ("phone: plus eight eight six, nine hundred twelve, zero zero zero, one hundred one", "phone"),
+    ("Kontonummer null null vier zwei eins eins acht fünf null null eins null eins", "account_number"),  # German
+    ("身分証番号は Z、に・きゅう・はち・なな・ろく・ご・よん・さん・いち です", "national_id"),          # Japanese kana
+])
+def test_number_readings_are_found(text, field):
+    assert fields(text) == [field]
+
+
+@pytest.mark.parametrize("text", [
+    "I have one question and two requests about twenty twenty-six rates.",
+    "十分感謝您的來信，八十八號分行三樓見。",
+    "ご本人確認のため、窓口までお越しください。",
+])
+def test_number_words_in_normal_prose_are_harmless(text):
+    assert fields(text) == []

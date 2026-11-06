@@ -10,7 +10,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
-from gateway import dlp
+from gateway import dlp, semantic
 from gateway.audit import AuditLog
 from gateway.context import PII_SOURCES, ContextTracker
 from gateway.pdp import PdpClient
@@ -67,7 +67,7 @@ async def lifespan(app: FastAPI):
     app.state.tracker = ContextTracker(VAR_DIR / "context.db")
     app.state.audit = AuditLog(VAR_DIR / "audit.jsonl")
     app.state.pdp = PdpClient(OPA_URL)
-    app.state.output_pdp = PdpClient(OPA_URL, "agent/output", valid_results={"allow", "redact"},
+    app.state.output_pdp = PdpClient(OPA_URL, "agent/output", valid_results={"allow", "redact", "withhold"},
                                      fail_result="redact")
     app.state.pending = {}
     async with McpPool() as pool:
@@ -177,24 +177,50 @@ async def resolve_approval(approval_id: str, body: ApprovalDecision):
     return await _execute(call, args, decision)
 
 
+WITHHELD = ("[WITHHELD] 這份草稿經安全檢查判定可能含有客戶個資，已由安全閘道攔下。"
+            "請理專直接在客戶系統中查看資料後自行撰寫回覆。")
+
+
 @app.post("/v1/output")
 async def check_output(out: FinalOutput):
-    """Output-side DLP (R7): the agent's final answer passes the gateway before it reaches the user.
+    """Output-side DLP: the agent's final answer passes the gateway before it reaches the user.
 
-    PII this session obtained from tools is matched by fingerprint; the PDP decides whether to redact.
-    If the PDP cannot be reached, matches are redacted (fail closed).
+    Layer 1 (R7, deterministic): PII this session obtained from tools is matched by fingerprint and redacted.
+    Layer 2 (R8, semantic, optional): a local model decodes identifiers from the redacted text (numbers read
+    out as words, other languages, digit-by-digit descriptions...) and the candidates are checked against
+    the same fingerprints; a confirmed match withholds the whole draft. If the PDP cannot be reached, matches are redacted (fail closed); if the classifier
+    cannot be reached for a tainted session that accessed PII, the draft is withheld (fail closed).
     """
     s = app.state
     ctx = s.tracker.get(out.session_id)
-    spans = dlp.scan(out.text, s.tracker.fingerprints(out.session_id))
+    fps = s.tracker.fingerprints(out.session_id)
+    spans = dlp.scan(out.text, fps)
     fields = sorted({f for _, _, f, _ in spans})
     kinds = sorted({k for _, _, _, k in spans})
+    redacted = dlp.redact(out.text, spans)
+
+    if not semantic.enabled():
+        sem = {"status": "disabled"}
+    elif ctx["tainted"] and ctx["pii_accessed"]:
+        sem = await semantic.check(redacted, fps)
+    else:
+        sem = {"status": "skipped"}  # nothing to protect, or R7/R8 would allow anyway
+    sem_view = {k: sem[k] for k in ("status", "discloses", "fields", "candidates") if k in sem}  # counts, no text
+
     decision = await s.output_pdp.decide({"subject": out.subject.model_dump(), "context": ctx,
-                                          "output": {"pii_fields": fields, "length": len(out.text)}})
-    text = dlp.redact(out.text, spans) if decision["result"] != "allow" else out.text
+                                          "output": {"pii_fields": fields, "length": len(out.text),
+                                                     "semantic": sem_view}})
+    if decision["result"] == "withhold":
+        text = WITHHELD
+    elif decision["result"] == "allow":
+        text = out.text
+    else:
+        text = redacted
     s.audit.write(event="output", session_id=out.session_id, subject=out.subject.model_dump(),
                   tool="final_output", args={"text": out.text}, context=ctx, decision=decision["result"],
                   reason=decision["reasons"], policy_version=decision["policy_version"],
-                  pii_fields=fields, match_kinds=kinds, redactions=len(spans) if text != out.text else 0)
+                  pii_fields=fields, match_kinds=kinds, redactions=len(spans) if text == redacted != out.text else 0,
+                  semantic={**sem_view, "model": sem.get("model"), "latency_ms": sem.get("latency_ms"),
+                            "error": sem.get("error")})
     return {"status": decision["result"], "text": text, "pii_fields": fields, "match_kinds": kinds,
-            "reasons": decision["reasons"]}
+            "semantic": sem_view, "reasons": decision["reasons"]}

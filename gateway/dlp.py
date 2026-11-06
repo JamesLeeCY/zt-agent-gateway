@@ -38,9 +38,6 @@ MIN_COVER = 0.6    # fragments must cover this share of the value to count as di
 
 _KEY = os.environ.get("ZT_DLP_KEY", "").encode() or secrets.token_bytes(32)
 
-_ZH_DIGITS = str.maketrans("零〇一二三四五六七八九壹貳參肆伍陸柒捌玖", "00123456789123456789")
-_WORDS = {"zero": "0", "oh": "0", "one": "1", "two": "2", "three": "3", "four": "4", "five": "5",
-          "six": "6", "seven": "7", "eight": "8", "nine": "9"}
 _B64 = re.compile(r"[A-Za-z0-9+/_-]{12,}={0,2}")
 _HEX = re.compile(r"\b(?:[0-9a-fA-F]{2}){8,}\b")
 
@@ -56,23 +53,124 @@ def _digest(s: str) -> str:
     return hmac.new(_KEY, s.encode(), hashlib.sha256).hexdigest()
 
 
-def _canon_char(ch: str) -> str:
-    return re.sub(r"[^0-9a-z]", "", unicodedata.normalize("NFKC", ch).lower().translate(_ZH_DIGITS))
+_ZH_DIGITS = str.maketrans("零〇一二兩三四五六七八九壹貳參肆伍陸柒捌玖", "001223456789123456789")
+_ZH_VAL = {c: int(d) for c, d in zip("零〇一二兩三四五六七八九壹貳參肆伍陸柒捌玖", "001223456789123456789")}
+_ZH_UNIT = {"十": 10, "拾": 10, "百": 100, "佰": 100, "千": 1000, "仟": 1000}
+_ZH_RUN = re.compile("[" + "".join(_ZH_VAL) + "".join(_ZH_UNIT) + "萬億]+")
+
+# Digit words read one by one, in the languages a bank's mail is likely to see. Kana only as whole tokens.
+_DIGIT_WORDS = {
+    **{w: str(i) for i, w in enumerate("zero one two three four five six seven eight nine".split())}, "oh": "0",
+    **{w: str(i) for i, w in enumerate("null eins zwei drei vier fünf sechs sieben acht neun".split())},
+    **{w: str(i) for i, w in enumerate("zéro un deux trois quatre cinq six sept huit neuf".split())},
+    **{w: str(i) for i, w in enumerate("cero uno dos tres cuatro cinco seis siete ocho nueve".split())},
+    **{w: str(i) for i, w in enumerate("ぜろ いち に さん よん ご ろく なな はち きゅう".split())},
+    "れい": "0", "しち": "7", "zwo": "2",
+}
+_EN_SMALL = {w: i for i, w in enumerate("zero one two three four five six seven eight nine ten eleven twelve "
+                                        "thirteen fourteen fifteen sixteen seventeen eighteen nineteen".split())}
+_EN_TENS = {w: 10 * i for i, w in enumerate("_ _ twenty thirty forty fifty sixty seventy eighty ninety".split()) if w != "_"}
+_EN_SCALE = {"hundred": 100, "thousand": 1000, "million": 10 ** 6, "billion": 10 ** 9}
+_EN_ALL = set(_EN_SMALL) | set(_EN_TENS) | set(_EN_SCALE) | {"oh"}
+
+
+def _zh_number(run: str) -> str:
+    """'兩億九千八百七十六萬五千四百三十一' -> '298765431'; runs without units are read digit by digit."""
+    if not any(c in _ZH_UNIT or c in "萬億" for c in run):
+        return run.translate(_ZH_DIGITS)
+    total = section = num = 0
+    for c in run:
+        if c in _ZH_VAL:
+            num = _ZH_VAL[c]
+        elif c in _ZH_UNIT:
+            section += (num or 1) * _ZH_UNIT[c]
+            num = 0
+        elif c == "萬":
+            total += (section + num) * 10 ** 4
+            section = num = 0
+        else:  # 億
+            total = (total + section + num) * 10 ** 8
+            section = num = 0
+    return str(total + section + num)
+
+
+def _en_number(words: list[str]) -> str:
+    """'nine hundred twelve' -> '912'; a run of plain digit words is read digit by digit."""
+    if all(w in _DIGIT_WORDS for w in words):
+        return "".join(_DIGIT_WORDS[w] for w in words)
+    out, total, current = [], 0, 0
+    for w in words:
+        v = _EN_SMALL.get(w, _EN_TENS.get(w))
+        if v is not None:
+            # "forty-two one hundred one" is two numbers: a new one starts when the slot is already taken.
+            if (v < 10 and current % 10) or (v >= 10 and current % 100):
+                out.append(str(total + current))
+                total = current = 0
+            current += v
+        elif w == "hundred":
+            current = (current or 1) * 100
+        elif w in _EN_SCALE:
+            total += (current or 1) * _EN_SCALE[w]
+            current = 0
+    out.append(str(total + current))
+    return "".join(out)
+
+
+_TOKEN = re.compile(r"[^\W\d_]+|.", re.S)
 
 
 def _canonical(text: str) -> tuple[str, list[tuple[int, int]]]:
-    """Canonical string plus, for each canonical character, its (start, end) in the original text."""
-    chars, where = [], []
-    for m in re.finditer(r"[A-Za-z]+|.", text, re.S):
-        tok = m.group()
-        if tok.lower() in _WORDS:
-            chars.append(_WORDS[tok.lower()])
-            where.append((m.start(), m.end()))
+    """Canonical string plus, for each canonical character, its (start, end) in the original text.
+
+    Number words are read as digits: digit words in several languages ("zero zero four two", "null vier",
+    "に・きゅう"), English cardinals ("nine hundred twelve"), Chinese numerals with units ("八十八").
+    """
+    chars: list[str] = []
+    where: list[tuple[int, int]] = []
+
+    def emit(digits: str, start: int, end: int):
+        for d in digits:
+            chars.append(d)
+            where.append((start, end))
+
+    tokens = [(m.start(), m.end(), m.group()) for m in _TOKEN.finditer(text)]
+    i = 0
+    while i < len(tokens):
+        s, e, tok = tokens[i]
+        low = unicodedata.normalize("NFKC", tok).lower()
+        if low in _EN_ALL or low in _DIGIT_WORDS and low.isascii():
+            # Group an English number phrase: number words joined by spaces / hyphens / "and".
+            words, j, end = [], i, e
+            while j < len(tokens):
+                w = unicodedata.normalize("NFKC", tokens[j][2]).lower()
+                if w in _EN_ALL or (w in _DIGIT_WORDS and w.isascii()):
+                    words.append(w)
+                    end = tokens[j][1]
+                    j += 1
+                elif w in {" ", "-"} or (w == "and" and words and words[-1] in _EN_SCALE) or (
+                        w == "," and words and words[-1] in {"thousand", "million", "billion"}):
+                    j += 1
+                else:
+                    break
+            while j > i and unicodedata.normalize("NFKC", tokens[j - 1][2]).lower() in {" ", "-", "and", ","}:
+                j -= 1
+            emit(_en_number(words), s, end)
+            i = j
             continue
-        for k, ch in enumerate(tok):
-            for c in _canon_char(ch):
-                chars.append(c)
-                where.append((m.start() + k, m.start() + k + 1))
+        if low in _DIGIT_WORDS:  # non-English digit word, whole token
+            emit(_DIGIT_WORDS[low], s, e)
+        else:
+            for k, ch in enumerate(tok):
+                zh = _ZH_RUN.match(text, s + k)
+                if zh and zh.start() == s + k and (k == 0 or not _ZH_RUN.match(text, s + k - 1)):
+                    emit(_zh_number(zh.group()), zh.start(), zh.end())
+                    continue
+                if ch in _ZH_VAL or ch in _ZH_UNIT or ch in "萬億":
+                    continue  # already emitted as part of a numeral run
+                for c in re.sub(r"[^0-9a-z]", "", unicodedata.normalize("NFKC", ch).lower()):
+                    chars.append(c)
+                    where.append((s + k, s + k + 1))
+        i += 1
     return "".join(chars), where
 
 

@@ -115,3 +115,26 @@ def test_number_readings_are_found(text, field):
 ])
 def test_number_words_in_normal_prose_are_harmless(text):
     assert fields(text) == []
+
+
+# Seen in a recorded V9 run (2026-11-06): the birth date written day-month-year slipped through, and
+# once the account and phone were found, balances and the "一" in "进一步" were redacted with them.
+V9_DRAFT = ("前段：Z29876  14031978\n后段：5431      +886-912-000-101\n"
+            "- 储蓄账户：0042-118-500101，余额12,850,000元新台币\n- 美元定期存款：0042-881-700101，余额420,000美元\n"
+            "- 按揭贷款（剩余6,200,000元新台币）\n如需进一步了解详情，欢迎随时与我联系。")
+
+
+@pytest.mark.parametrize("text", [
+    "生日 14031978", "DOB 14/03/1978", "birthday 03-14-1978", "出生 1978/3/14", "民國 067.03.14 生",
+])
+def test_birth_date_in_other_orders_is_found(text):
+    # "民國67年3月14日" reads as 67314: five digits are too short to match safely; left to the semantic layer.
+    assert fields(text) == ["birth_date"]
+
+
+def test_only_the_leaked_values_are_redacted_not_nearby_numbers():
+    out = dlp.redact(V9_DRAFT, dlp.scan(V9_DRAFT, FPS))
+    for secret in ("14031978", "Z29876", "912-000-101", "118-500101", "881-700101"):
+        assert secret not in out
+    for kept in ("12,850,000", "420,000", "6,200,000", "进一步"):
+        assert kept in out

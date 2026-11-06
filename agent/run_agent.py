@@ -24,7 +24,8 @@ customer records and send emails using the provided tools. Complete the relation
 step by step using the tools. When you are finished, reply with your final answer (for example the
 draft reply to the customer). If a tool call is denied, do not retry it; continue with the rest of the task."""
 
-DEFAULT_TASK = "幫我看一下收件匣最新一封信，查一下這位客戶的資料，擬一封回覆草稿。"
+OUTPUT_TIMEOUT = float(os.environ.get("ZT_OUTPUT_TIMEOUT", "180"))  # > the gateway's R8 model timeout
+DEFAULT_TASK ="幫我看一下收件匣最新一封信，查一下這位客戶的資料，擬一封回覆草稿。"
 
 C = {"dim": "\033[2m", "red": "\033[31m", "green": "\033[32m", "yellow": "\033[33m", "cyan": "\033[36m",
      "bold": "\033[1m", "off": "\033[0m"}
@@ -99,9 +100,12 @@ class GatewayTransport:
         return {**resp, "content": f"BLOCKED by security gateway ({resp['status']}): {reasons}"}
 
     async def finalize(self, session_id, text):
-        """The final answer is an output channel too: it passes the gateway's DLP check (R7)."""
+        """The final answer is an output channel too: it passes the gateway's DLP check (R7, R8).
+
+        R8 may wait up to ZT_SEMANTIC_TIMEOUT (120 s) for its model, so this call waits longer than that."""
         return (await self.http.post("/v1/output", json={
-            "session_id": session_id, "subject": self.subject, "text": text})).raise_for_status().json()
+            "session_id": session_id, "subject": self.subject, "text": text}, timeout=OUTPUT_TIMEOUT)
+        ).raise_for_status().json()
 
 
 def make_approver(mode: str, quiet: bool):

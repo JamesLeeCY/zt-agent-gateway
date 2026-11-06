@@ -9,9 +9,11 @@ What is caught
             folded (NFKC), Chinese numerals (零一二… / 壹貳參…) and English number words
             ("zero zero four two") read as digits, and the value written backwards.
             "Z 298 765 431", "Ｚ２９８…", "Z二九八七六五四三一", "134567892Z" all match.
+            A birth date also matches as day-month-year, month-day-year, unpadded and ROC (民國) year.
   fragment  enough pieces of a mostly-numeric value to reconstruct most of it: "前五碼 Z2987，後五碼 65431".
-            Only runs of >= 5 characters count, and together they must cover >= 60% of the value, so the
-            usual "last four digits" masking (and stray years such as "2000") is still allowed.
+            Only runs of >= 5 characters written in one piece count (prose in between ends a run), and
+            together they must cover >= 60% of the value, so the usual "last four digits" masking (and
+            stray years such as "2000") is still allowed; only the counted runs are redacted.
   decoded   base64 / hex tokens are decoded and the result is scanned again.
 
 What is not caught: paraphrase that never writes the characters ("starts with Z, ends with 431"
@@ -178,11 +180,28 @@ def _norm(s: str) -> str:
     return _canonical(s)[0]
 
 
+def _date_forms(ymd: str) -> set[str]:
+    """Other ways the same date is written: day-month-year, month-day-year, unpadded, ROC (民國) year.
+
+    Forms shorter than MIN_LEN are dropped later ("民國67年3月14日" reads as 67314 and is left to the
+    semantic layer)."""
+    y, m, d = ymd[:4], ymd[4:6], ymd[6:]
+    out = set()
+    for mm, dd in {(m, d), (m.lstrip("0"), d.lstrip("0"))}:
+        out |= {y + mm + dd, dd + mm + y, mm + dd + y}
+        if int(y) > 1911:
+            roc = int(y) - 1911
+            out |= {f"{roc:03d}{mm}{dd}", f"{roc}{mm}{dd}"}
+    return out
+
+
 def _variants(field: str, value: str) -> set[str]:
     v = _norm(value)
     out = {v}
     if field == "phone" and v.startswith("886"):  # +886-912-... is also written 0912-...
         out.add("0" + v[3:])
+    if field == "birth_date" and len(v) == 8 and v.isdigit():
+        out |= _date_forms(v)
     out |= {x[::-1] for x in out}  # written backwards is still the same secret
     return {x for x in out if len(x) >= MIN_LEN}
 
@@ -260,9 +279,17 @@ def _scan_plain(text: str, fps: list[Fingerprint]) -> list[Span]:
         if ref:
             grams.setdefault(d, []).append((field, ref, pos))
     if grams:
+        # A fragment must be written in one piece: the canonical form drops prose, so without this "余额
+        # 12,850,000" or the "一" in "进一步" can join digits from elsewhere into an accidental 4-gram.
+        seg = [0] * len(norm)
+        for j in range(1, len(norm)):
+            gap = text[where[j - 1][1]:where[j][0]]
+            seg[j] = seg[j - 1] + (len(gap) > 3 or not re.fullmatch(r"[\W_]*", gap))
         hits: dict[tuple[str, int], set[int]] = {}  # (ref, value pos) -> text positions where that 4-gram starts
         fields = {}
         for i in range(len(norm) - GRAM + 1):
+            if seg[i] != seg[i + GRAM - 1]:
+                continue
             for field, ref, pos in grams.get(_digest(norm[i:i + GRAM]), []):
                 hits.setdefault((ref, pos), set()).add(i)
                 fields[ref] = field
@@ -283,6 +310,8 @@ def _scan_plain(text: str, fps: list[Fingerprint]) -> list[Span]:
                     covered.update(range(p, p + length))
             if len(covered) >= max(MIN_RUN, MIN_COVER * value_len):
                 for i, _, length in rs:
+                    if length < MIN_RUN:
+                        continue  # a stray 4-gram elsewhere ("2000" in a balance) is not part of the leak
                     spans.extend(_pieces(text, where[i:i + length], fields[ref], "fragment"))
     return spans
 

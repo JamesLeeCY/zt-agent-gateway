@@ -71,7 +71,7 @@ python -m demo.run_demo attack
 python -m agent.run_agent --gateway --rm rm_042 "幫我看一下收件匣最新一封信，查一下這位客戶的資料，擬一封回覆草稿。"
 ```
 
-環境變數：`OLLAMA_MODEL`（預設 `qwen2.5:7b-instruct`）、`ANTHROPIC_MODEL`、`ZT_LLM`、`ZT_GATEWAY_URL`、`OPA_URL`、`ZT_VAR_DIR`（outbox／稽核日誌／情境 DB 位置，預設 `var/`）、`ZT_SEMANTIC_DLP`（`ollama`／`off`；compose 預設 `ollama`）、`ZT_SEMANTIC_MODEL`（預設 `gemma3:4b`）。R8 的離線評估：`python -m demo.semantic_eval`。
+環境變數：`OLLAMA_MODEL`（預設 `qwen2.5:7b-instruct`）、`ANTHROPIC_MODEL`、`ZT_LLM`、`ZT_GATEWAY_URL`、`OPA_URL`、`ZT_VAR_DIR`（outbox／稽核日誌／情境 DB 位置，預設 `var/`）、`ZT_SEMANTIC_DLP`（`ollama`／`off`；compose 預設 `ollama`）、`ZT_SEMANTIC_MODEL`（預設 `gemma3:4b`）、`ZT_OUTPUT_TIMEOUT`（agent 等輸出檢查的秒數，預設 180，需大於 R8 的模型逾時）。R8 的離線評估：`python -m demo.semantic_eval`。
 
 寄信工具不會真的寄出，信件寫入 `var/outbox.jsonl`；所有客戶資料都是合成資料。
 

@@ -6,9 +6,11 @@
 
 ## 2. 威脅模型（1 分鐘）
 
-- T1 間接 prompt injection — OWASP LLM01、ATLAS AML.T0051
-- T2 權限過大 — OWASP LLM06：同一個 agent 同時能查個資又能對外寄信
-- T3 敏感資料外洩 — OWASP LLM02、ATLAS AML.T0057
+- T1 間接 prompt injection — OWASP LLM01:2026、ATLAS AML.T0051.001（Indirect）
+- T2 權限過大 — OWASP LLM03:2026 Excessive Agency（2025 版是 LLM06）、ATLAS AML.T0053：同一個 agent 同時能查個資又能對外寄信
+- T3 敏感資料外洩 — OWASP LLM02:2026、ATLAS AML.T0086（經工具外洩）與 AML.T0136（經使用者介面外洩，即寫進草稿）
+
+（編號依 OWASP LLM Top 10 2026、MITRE ATLAS v2026.10；被問到時可補一句：舊版的 AML.T0057 在 v2026.10 已併入 AML.T0085.002，且那是指從 AI 服務蒐集對話內容，不是本案的外洩路徑。）
 
 重點一句話：**我們無法保證 LLM 不被騙，所以控制點要放在 LLM 之外。**
 

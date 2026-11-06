@@ -26,13 +26,20 @@ LLM 無法可靠地分辨「資料」與「指令」，因此控制點放在 LLM
 
 ## 威脅
 
-| 威脅 | OWASP LLM Top 10 (2025) | MITRE ATLAS | 攻擊路徑 | 業務衝擊 | 主要控制 |
+| 威脅 | OWASP LLM Top 10 2026（2025 版編號） | MITRE ATLAS v2026.10 | 攻擊路徑 | 業務衝擊 | 主要控制 |
 | --- | --- | --- | --- | --- | --- |
-| T1 間接 prompt injection | LLM01 Prompt Injection | AML.T0051 LLM Prompt Injection（.001 Indirect） | 來信內嵌指令（HTML 註解、白色字），agent 照做 | agent 被外部操控 | C2、C3、C4 |
-| T2 權限過大 | LLM06 Excessive Agency | — | agent 同時擁有查個資與對外寄信權限；也會「主動」寄出未被要求寄出的信 | 單一失誤即可造成外洩 | C1、C4、C5 |
-| T3 敏感資料外洩 | LLM02 Sensitive Information Disclosure | AML.T0057 LLM Data Leakage | 個資經 `send_email` 寄到外部信箱 | 個資法與金管法規風險、商譽損失 | C3、C6 |
+| T1 間接 prompt injection | LLM01:2026 Prompt Injection（2025：LLM01） | AML.T0051.001 LLM Prompt Injection: Indirect；藏指令的手法為 AML.T0068 LLM Prompt Obfuscation | 來信內嵌指令（HTML 註解、白色字），agent 照做 | agent 被外部操控 | C2、C3、C4 |
+| T2 權限過大 | LLM03:2026 Excessive Agency（2025：LLM06） | AML.T0053 AI Agent Tool Invocation | agent 同時擁有查個資與對外寄信權限；也會「主動」寄出未被要求寄出的信 | 單一失誤即可造成外洩 | C1、C4、C5 |
+| T3 敏感資料外洩 | LLM02:2026 Sensitive Information Disclosure（2025：LLM02） | 經寄信：AML.T0086 Exfiltration via AI Agent Tool Invocation；經回覆草稿：AML.T0136 Exfiltration via AI User Interface | 個資經 `send_email` 寄到外部信箱，或寫進回覆草稿（V6–V12） | 個資法與金管法規風險、商譽損失 | C3、C6、C9、C10 |
 
-> 待確認：OWASP 與 ATLAS 的編號會隨版本更動，寫進簡報前請對照官方最新版。
+補充對應：
+- **R6 呼叫次數上限**對應 LLM06:2026 Unbounded Consumption（2025：LLM10）。
+- **OWASP Top 10 for Agentic Applications**（2026）：T1 對應 ASI01 Agent Goal Hijack，T1/T2 的「被注入後呼叫工具」對應 ASI02 Tool Misuse & Exploitation，T2 中「agent 以理專的權限行事」對應 ASI03 Identity & Privilege Abuse。此對應取自 OWASP LLM Top 10 2026 的 Appendix A。
+
+> **已核對（2026-11-06）**
+> - **OWASP**：對照官方 [GenAI-Security-Project/GenAI-LLM-Top10](https://github.com/GenAI-Security-Project/GenAI-LLM-Top10/tree/main/2026/final)。2026 版於 2026-08-04 發布，Excessive Agency 從 LLM06 改為 LLM03，Unbounded Consumption 從 LLM10 改為 LLM06；LLM01、LLM02 不變。
+> - **MITRE ATLAS**：對照官方資料 [mitre-atlas/atlas-data](https://github.com/mitre-atlas/atlas-data) v2026.10（2026-10-28）。原規格書的 AML.T0057 LLM Data Leakage 已在 v2026.10 移入 AML.T0085.002 Data from AI Services: Conversation Context and Memory，那是「從 AI 服務蒐集對話與記憶內容」，不符合本案的外洩路徑，所以改用 T0086（寄信外洩）與 v2026.10 新增的 T0136（經使用者介面外洩）。
+> - **之後的更新**：兩者都會再改版，寫進簡報時請標明版本。
 
 ## Demo 攻擊 payload（合成）
 

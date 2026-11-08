@@ -4,6 +4,11 @@
 
 規格：[企業 AI Agent 零信任控制框架 — 精簡版技術規格書.md](企業%20AI%20Agent%20零信任控制框架%20—%20精簡版技術規格書.md) · 威脅模型：[docs/threat_model.md](docs/threat_model.md) · 控制矩陣：[docs/control_matrix.md](docs/control_matrix.md)
 
+> **測試資料與攻擊樣本**
+> - `data/` 裡的客戶、帳號、身分證字號、電話、地址全部是虛構的範例值，網域都是 `example.com`／`example.net` 這類保留網域。
+> - `data/inbox/rm_042`、`data/inbox/rm_v2`～`rm_v12` 是刻意寫成的 prompt injection 攻擊信，用來在本機重現與量測攻擊。請只在你自己控制的測試環境使用，不要拿去攻擊他人的系統。
+> - 本專案是研究與示範用的參考實作，不是可直接上線的產品；正式導入前需要依 [docs/control_matrix.md](docs/control_matrix.md) 的剩餘風險補上控制。
+
 ## 架構（NIST SP 800-207 套用到 agent）
 
 ```
@@ -111,3 +116,7 @@ docs/                     # 威脅模型、控制矩陣、驗收結果
 ## 後續擴充
 
 紅隊測試集與攻擊成功率／誤擋率統計、欄位層級的資料來源追蹤（取代 session 層級 taint）、ML 行為異常分數接入 PDP、真實 IdP 與短效憑證、稽核日誌送 WORM 儲存。
+
+## 授權
+
+[MIT](LICENSE)

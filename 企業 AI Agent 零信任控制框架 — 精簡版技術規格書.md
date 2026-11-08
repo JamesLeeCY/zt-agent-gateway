@@ -4,7 +4,7 @@ Nov 4, 2026 · @James Lee
 
 ## 1. 專案概述
 
-本專案在 AI agent 與其工具（MCP server）之間建立一個零信任閘道，讓每一次工具呼叫都經過授權、情境評估與稽核，並以一個 prompt injection 攻擊 demo 證明控制有效。精簡版目標是一週內完成，可在 EY 最終面試中 5 分鐘講完、2 分鐘 demo。
+本專案在 AI agent 與其工具（MCP server）之間建立一個零信任閘道，讓每一次工具呼叫都經過授權、情境評估與稽核，並以一個 prompt injection 攻擊 demo 證明控制有效。精簡版目標是一週內完成，可在 5 分鐘內講完、2 分鐘 demo。
 
 **做（In scope）**
 

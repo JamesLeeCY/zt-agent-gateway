@@ -3,3 +3,6 @@ __pycache__/
 .pytest_cache/
 *.pyc
 .env
+bench/.venv/
+bench/agentdojo/logs/
+bench/agentdojo/results/

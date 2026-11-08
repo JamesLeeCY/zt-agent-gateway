@@ -8,6 +8,8 @@ jobs:
       - uses: actions/checkout@v7
       - name: opa test
         run: docker run --rm -v "$PWD/policy:/policy:ro" openpolicyagent/opa:1.10.1-static test /policy -v
+      - name: opa test (AgentDojo benchmark policy)
+        run: docker run --rm -v "$PWD/bench/agentdojo/policy:/policy:ro" openpolicyagent/opa:1.10.1-static test /policy -v
 
   python:
     runs-on: ubuntu-24.04

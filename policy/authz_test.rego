@@ -72,6 +72,35 @@ test_r3_not_triggered_for_internal_recipient if {
 	not "R3: tainted session sending PII externally" in d.reasons
 }
 
+named(ctx, rs) := object.union(ctx, {"user_named_recipients": rs})
+
+test_r3_user_named_external_goes_to_approval if {
+	args := {"to": "sarah.connor@gmail.com", "body_len": 300}
+	d := authz.decision with input as req(rm, "send_email", args, named(tainted_pii, ["Sarah.Connor@gmail.com"]))
+	d.result == "require_approval"
+	"R5: recipient not in internal directory" in d.reasons
+	not "R3: tainted session sending PII externally" in d.reasons
+}
+
+test_r3_unnamed_recipient_next_to_named_one_denied if {
+	# The attacker's address smuggled in next to the one the user named: not one address, and not named.
+	args := {"to": "sarah.connor@gmail.com,audit@attacker-example.net", "body_len": 812}
+	d := authz.decision with input as req(rm, "send_email", args, named(tainted_pii, ["sarah.connor@gmail.com"]))
+	d.result == "deny"
+	"R3: tainted session sending PII externally" in d.reasons
+}
+
+test_r3_other_external_still_denied_when_user_named_someone if {
+	d := authz.decision with input as req(rm, "send_email", attacker_mail, named(tainted_pii, ["sarah.connor@gmail.com"]))
+	d.result == "deny"
+}
+
+test_r3_malformed_address_denied_even_if_named if {
+	args := {"to": "a@b.com, audit@attacker-example.net", "body_len": 812}
+	d := authz.decision with input as req(rm, "send_email", args, named(tainted_pii, ["a@b.com, audit@attacker-example.net"]))
+	d.result == "deny"
+}
+
 # --- R4 continuous verification --------------------------------------------
 test_r4_approval_after_taint if {
 	d := authz.decision with input as req(rm, "send_email", internal_mail, tainted)

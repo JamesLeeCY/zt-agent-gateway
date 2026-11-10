@@ -1,6 +1,6 @@
 # 企業 AI Agent 零信任控制框架：專案報告
 
-2026-11-06｜政策版本 `2026-11-06.1`｜程式碼：JamesLeeCY/zt-agent-gateway
+2026-11-06｜政策版本 `2026-11-10.1`｜程式碼：JamesLeeCY/zt-agent-gateway
 
 ## 1. 摘要
 
@@ -54,7 +54,7 @@ Agent 最終回覆 ─▶ /v1/output ─▶ 第一層 DLP（指紋比對）＋ �
 | --- | --- | --- |
 | R1 | 沒有規則放行，或 PDP 無回應 | deny |
 | R2 | 角色不在工具允許清單 | deny |
-| R3 | tainted 且 pii_accessed，且收件人不在行內通訊錄 | deny |
+| R3 | tainted 且 pii_accessed，且收件人不在行內通訊錄、也不是理專在指令裡寫的地址（格式不合一律算） | deny |
 | R4 | tainted 後呼叫高風險工具 | require_approval |
 | R5 | 收件人不在行內通訊錄 | require_approval |
 | R6 | 單一 session 超過 20 次呼叫 | deny |

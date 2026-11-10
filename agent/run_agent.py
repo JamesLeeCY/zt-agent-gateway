@@ -66,6 +66,9 @@ class DirectTransport:
             return {"status": "error", "content": f"unknown tool {name}"}
         return {"status": "ok", "content": await self.pool.call(name, args)}
 
+    async def start(self, session_id, task):
+        pass
+
     async def finalize(self, session_id, text):
         return {"status": "unchecked", "text": text, "pii_fields": [], "reasons": []}
 
@@ -83,6 +86,11 @@ class GatewayTransport:
 
     async def tools(self):
         return (await self.http.get("/v1/tools")).raise_for_status().json()["tools"]
+
+    async def start(self, session_id, task):
+        """Hand the gateway the user's own request before any tool runs (addresses in it are user-named)."""
+        (await self.http.post("/v1/sessions", json={
+            "session_id": session_id, "subject": self.subject, "request": task})).raise_for_status()
 
     async def call(self, session_id, name, args, approver):
         resp = (await self.http.post("/v1/tools/call", json={
@@ -141,6 +149,7 @@ async def run(task: str, *, mode: str, rm: str = "rm_042", role: str = "relation
     say("bold", f"== agent mode={mode.upper()} llm={backend.name} session={session_id} rm={rm} ==", quiet)
     say("cyan", f"理專指令: {task}", quiet)
     async with transport:
+        await transport.start(session_id, task)
         tools = await transport.tools()
         history = [{"role": "user", "text": task}]
         final = ""

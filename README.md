@@ -2,7 +2,7 @@
 
 在 AI agent 與其工具（MCP server）之間放一個零信任閘道：每一次工具呼叫都經過**授權、情境評估與稽核**。用一個間接 prompt injection 攻擊 demo 證明控制有效：同一封惡意來信，無 gateway 時客戶個資被寄到外部，有 gateway 時被 R3 擋下，理專的正常任務照常完成。
 
-規格：[企業 AI Agent 零信任控制框架 — 精簡版技術規格書.md](企業%20AI%20Agent%20零信任控制框架%20—%20精簡版技術規格書.md) · 威脅模型：[docs/threat_model.md](docs/threat_model.md) · 控制矩陣：[docs/control_matrix.md](docs/control_matrix.md)
+規格：[企業 AI Agent 零信任控制框架 — 精簡版技術規格書.md](企業%20AI%20Agent%20零信任控制框架%20—%20精簡版技術規格書.md) · 威脅模型：[docs/threat_model.md](docs/threat_model.md) · 控制矩陣：[docs/control_matrix.md](docs/control_matrix.md) · AgentDojo 基準測試：[docs/agentdojo_report.md](docs/agentdojo_report.md)
 
 > **測試資料與攻擊樣本**
 > - `data/` 裡的客戶、帳號、身分證字號、電話、地址全部是虛構的範例值，網域都是 `example.com`／`example.net` 這類保留網域。

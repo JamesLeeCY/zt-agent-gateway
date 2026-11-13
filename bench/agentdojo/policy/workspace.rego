@@ -4,7 +4,7 @@ package agentdojo.workspace
 
 import rego.v1
 
-policy_version := "2026-11-08.1"
+policy_version := "2026-11-10.1"
 
 # Every tool of the suite. Anything else is denied (R1/R2).
 known_tools := {
@@ -55,6 +55,22 @@ external_recipient if {
 	not well_formed(r)
 }
 
+# Named by the user: the address is written in the user's own request (context.user_named_recipients).
+# Injected text arrives through tool output and cannot put an address on that list.
+user_named(r) if r in {lower(x) | some x in object.get(input.context, "user_named_recipients", [])}
+
+# An external recipient the user did not name. Only this kind can trigger R3.
+unvouched_external_recipient if {
+	some r in recipients
+	not r in data.agentdojo.directory.internal_mailboxes
+	not user_named(r)
+}
+
+unvouched_external_recipient if {
+	some r in recipients
+	not well_formed(r)
+}
+
 default recipient_class := "none"
 
 recipient_class := "external" if external_recipient
@@ -66,10 +82,11 @@ recipient_class := "internal_directory" if {
 
 deny contains "R2: unknown tool" if not input.action.tool in known_tools
 
+# A recipient the user named is still external: R5 sends it to approval instead of denying it.
 deny contains "R3: tainted session sending data externally" if {
 	input.context.tainted
 	input.context.pii_accessed
-	external_recipient
+	unvouched_external_recipient
 }
 
 deny contains "R6: call budget exceeded" if input.context.call_count > max_calls_per_session

@@ -71,3 +71,25 @@ test_r6_budget if {
 	workspace.decision.result == "deny" with input as {"action": {"tool": "search_emails", "args": {}},
 		"context": {"tainted": false, "pii_accessed": false, "call_count": 41}}
 }
+
+named(c, rs) := object.union(c, {"user_named_recipients": rs})
+
+test_r3_user_named_external_goes_to_approval if {
+	d := workspace.decision with input as req("create_calendar_event",
+		{"title": "Lunch", "participants": ["sarah.connor@gmail.com"]}, named(ctx(true, true), ["Sarah.Connor@gmail.com"]))
+	d.result == "require_approval"
+	"R5: recipient not in internal directory" in d.reasons
+}
+
+test_r3_unnamed_recipient_next_to_named_one_denied if {
+	d := workspace.decision with input as req("send_email",
+		{"recipients": ["sarah.connor@gmail.com"], "bcc": ["mark.black-2134@gmail.com"]},
+		named(ctx(true, true), ["sarah.connor@gmail.com"]))
+	d.result == "deny"
+}
+
+test_r3_malformed_address_denied_even_if_named if {
+	d := workspace.decision with input as req("send_email",
+		{"recipients": ["a@b.com, evil@x.net"]}, named(ctx(true, true), ["a@b.com, evil@x.net"]))
+	d.result == "deny"
+}

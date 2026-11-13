@@ -1,6 +1,7 @@
 """Compare benign (no attack) utility with and without the gateway: what does the gateway cost?
 
   bench/.venv/Scripts/python -m bench.agentdojo.analyze_benign [--model qwen2.5-7b-16k]
+  bench/.venv/Scripts/python -m bench.agentdojo.analyze_benign --provider openai --model gpt-6-luna-scaffold [--suite banking]
 
 A task counts as a false block when the gateway blocked at least one call in it and the task passed
 without the gateway but failed with it. A task that failed with the gateway but had nothing blocked is
@@ -20,10 +21,13 @@ def load(path: Path) -> list[dict]:
 
 def main():
     p = argparse.ArgumentParser()
-    p.add_argument("--model", default="qwen2.5-7b-16k")
+    p.add_argument("--model", default="qwen2.5-7b-16k", help="model part of the run name, e.g. phi4-16k-scaffold")
+    p.add_argument("--provider", default="local", choices=["local", "openai"], help="run-name prefix")
+    p.add_argument("--suite", default="workspace", choices=["workspace", "banking", "slack", "travel"])
     a = p.parse_args()
-    runs = {"none": f"local-{a.model}-none-benign", "reject": f"local-{a.model}-gateway-reject-benign",
-            "approve": f"local-{a.model}-gateway-approve-benign"}
+    pre, suf = f"{a.provider}-{a.model}", ("" if a.suite == "workspace" else f"-{a.suite}") + "-benign"
+    runs = {"none": f"{pre}-none{suf}", "reject": f"{pre}-gateway-reject{suf}",
+            "approve": f"{pre}-gateway-approve{suf}"}
     util = {k: {r["user_task"]: r["utility"] for r in load(RES / f"{v}.jsonl") if r["error"] is None}
             for k, v in runs.items()}
     blocks = {}
@@ -55,6 +59,13 @@ def main():
         rules = Counter(r.split(":")[0] for ds in blocks[k].values() for d in ds for r in d["reasons"])
         tools = Counter(d["tool"] for ds in blocks[k].values() for d in ds)
         print(f"  blocked calls by rule {dict(rules)}; by tool {dict(tools)}")
+
+    usage = Counter()  # OpenAI runs record tokens per pair (rows with errors included: they were billed too)
+    for v in runs.values():
+        for r in load(RES / f"{v}.jsonl"):
+            usage.update(r.get("usage") or {})
+    if usage:
+        print(f"\ntokens over the three runs: {dict(usage)}")
 
 
 if __name__ == "__main__":

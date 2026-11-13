@@ -19,6 +19,7 @@
                         MCP: read_inbox · query_customer · send_email
 ```
 
+0. Session 開始時，agent 先把理專的原始指令交給 Gateway（`/v1/sessions`）。Gateway 只取出其中的 e-mail 地址存成 `user_named_recipients`，只能在第一個工具呼叫前寫入一次，之後的工具輸出無法加入。
 1. Agent 送出 tool call 到 Gateway（agent 不持有工具連線）。
 2. Gateway 綁定身分參數（例如信箱 = `on_behalf_of`）、計數、組決策輸入。
 3. OPA 回傳 `allow` / `deny` / `require_approval` + 理由；收不到決策就 deny（fail closed）。
@@ -32,7 +33,7 @@
 | --- | --- | --- |
 | R1 | 沒有規則放行／PDP 無回應 | deny |
 | R2 | 角色不在工具允許清單 | deny |
-| R3 | tainted 且 pii_accessed 且收件人不在行內通訊錄 | deny |
+| R3 | tainted 且 pii_accessed 且收件人不在行內通訊錄，且不是理專在指令裡親手寫的地址（格式不合一律算） | deny（理專指名的外部地址改由 R5 送審） |
 | R4 | tainted 後呼叫高風險工具 | require_approval |
 | R5 | 收件人不在行內通訊錄（[policy/directory.rego](policy/directory.rego)；行內網域但未列名的轉寄／共用信箱也算） | require_approval |
 | R6 | 單一 session 超過 20 次呼叫 | deny |
@@ -90,7 +91,7 @@ docker run --rm -v "$PWD/policy:/policy:ro" openpolicyagent/opa:1.10.1-static te
 pytest -v
 ```
 
-`opa test`：33 個案例，每條規則至少一個放行與一個拒絕（含多收件人走私、仿冒網域、未列名的行內信箱、未知角色、空輸入）。pytest：情境追蹤、稽核 hash chain、端到端（直連外洩、R3 阻擋、R4 核准／拒絕、R2、R6、身分綁定、fail closed、輸出端 DLP（含中文數字、全形、倒序、拼湊、編碼、數字讀法）、R8 判定邏輯（以替身取代模型）、送審資訊）；需要 OPA 的測試在 OPA 未啟動時自動略過。CI 見 [.github/workflows/ci.yml](.github/workflows/ci.yml)。
+`opa test`：37 個案例，每條規則至少一個放行與一個拒絕（含多收件人走私、仿冒網域、未列名的行內信箱、理專指名的外部地址、未知角色、空輸入）。pytest：情境追蹤、稽核 hash chain、端到端（直連外洩、R3 阻擋、R4 核准／拒絕、R2、R6、身分綁定、fail closed、輸出端 DLP（含中文數字、全形、倒序、拼湊、編碼、數字讀法）、R8 判定邏輯（以替身取代模型）、送審資訊）；需要 OPA 的測試在 OPA 未啟動時自動略過。CI 見 [.github/workflows/ci.yml](.github/workflows/ci.yml)。
 
 ## 驗收結果
 

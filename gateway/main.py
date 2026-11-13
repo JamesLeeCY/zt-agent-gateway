@@ -33,6 +33,12 @@ class ToolCall(BaseModel):
     args: dict = Field(default_factory=dict)
 
 
+class SessionStart(BaseModel):
+    session_id: str
+    subject: Subject
+    request: str  # the user's own words; tool output never goes here
+
+
 class FinalOutput(BaseModel):
     session_id: str
     subject: Subject
@@ -88,6 +94,20 @@ async def healthz():
 @app.get("/v1/tools")
 async def list_tools():
     return {"tools": agent_visible_tools(app.state.pool.tools)}
+
+
+@app.post("/v1/sessions")
+async def start_session(start: SessionStart):
+    """Register the user's request before the first tool call. The addresses written in it become
+    user_named_recipients (R3 sends those to approval instead of denying). Write-once."""
+    s = app.state
+    ctx = s.tracker.start(start.session_id, start.request)
+    if ctx is None:
+        raise HTTPException(409, "session already started or already has tool calls")
+    s.audit.write(event="session", session_id=start.session_id, subject=start.subject.model_dump(),
+                  tool="-", args={"request": start.request}, context=ctx, decision="started", reason=[],
+                  policy_version="-", user_named_recipients=len(ctx["user_named_recipients"]))
+    return {"status": "started", "user_named_recipients": ctx["user_named_recipients"]}
 
 
 async def _execute(call: ToolCall, args: dict, decision: dict) -> dict:

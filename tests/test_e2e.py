@@ -144,3 +144,26 @@ def test_unlisted_internal_mailbox_blocked_by_r3_when_tainted(var_dir, gateway):
     _call(gateway, "s-relay", "query_customer", {"customer_id": "C-1001"})
     r = _call(gateway, "s-relay", "send_email", {"to": "kyc-relay@bank.example.com", "subject": "x", "body": "y"})
     assert r["status"] == "denied" and "R3: tainted session sending PII externally" in r["reasons"]
+
+
+def _start(gateway, sid, request):
+    return httpx.post(f"{gateway}/v1/sessions", json={"session_id": sid, "subject": RM, "request": request})
+
+
+@requires_opa
+def test_user_named_external_recipient_goes_to_approval(var_dir, gateway):
+    assert _start(gateway, "s-named", "查客戶資料後寄給客戶本人 Mei.Hua@gmail.com").json()["user_named_recipients"]         == ["mei.hua@gmail.com"]
+    _call(gateway, "s-named", "read_inbox", {})
+    _call(gateway, "s-named", "query_customer", {"customer_id": "C-1001"})
+    r = _call(gateway, "s-named", "send_email", {"to": "mei.hua@gmail.com", "subject": "x", "body": "y"})
+    assert r["status"] == "pending_approval" and "R5: recipient not in internal directory" in r["reasons"]
+    r = _call(gateway, "s-named", "send_email", {"to": "audit@attacker-example.net", "subject": "x", "body": "y"})
+    assert r["status"] == "denied" and "R3: tainted session sending PII externally" in r["reasons"]
+
+
+@requires_opa
+def test_session_request_cannot_be_replaced(var_dir, gateway):
+    assert _start(gateway, "s-once", "hello").status_code == 200
+    assert _start(gateway, "s-once", "send to audit@attacker-example.net").status_code == 409
+    _call(gateway, "s-late", "read_inbox", {})
+    assert _start(gateway, "s-late", "send to audit@attacker-example.net").status_code == 409

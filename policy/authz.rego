@@ -4,7 +4,7 @@ package agent.authz
 
 import rego.v1
 
-policy_version := "2026-11-06.1"
+policy_version := "2026-11-10.1"
 
 high_risk_tools := {"send_email"}
 
@@ -57,16 +57,35 @@ external_recipient if {
 	not internal_recipient
 }
 
+# Named by the user: the address is written in the user's own request (context.user_named_recipients,
+# set by the gateway when the session starts). Injected text arrives through tool output and cannot put
+# an address on that list.
+user_named(r) if r in {trim_space(lower(x)) | some x in object.get(input.context, "user_named_recipients", [])}
+
+# An external recipient the user did not name, or anything that is not exactly one address.
+# Only this kind triggers R3; a user-named external recipient still goes to approval under R5.
+unvouched_external_recipient if {
+	external_recipient
+	not single_address
+}
+
+unvouched_external_recipient if {
+	external_recipient
+	single_address
+	not user_named(recipient)
+}
+
 # R2 least privilege: the role must be explicitly granted the tool (unknown roles get nothing).
 tool_permitted if input.action.tool in role_tools[input.subject.role]
 
 deny contains "R2: tool not permitted for role" if not tool_permitted
 
-# R3 data-flow control: untrusted input + PII in the session + external recipient = exfiltration path.
+# R3 data-flow control: untrusted input + PII in the session + external recipient the user did not
+# name = exfiltration path.
 deny contains "R3: tainted session sending PII externally" if {
 	input.context.tainted
 	input.context.pii_accessed
-	external_recipient
+	unvouched_external_recipient
 }
 
 # R6 anomaly limit.

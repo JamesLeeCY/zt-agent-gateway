@@ -6,3 +6,4 @@ __pycache__/
 bench/.venv/
 bench/agentdojo/logs/
 bench/agentdojo/results/
+bench/injecagent/data/

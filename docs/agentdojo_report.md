@@ -24,6 +24,8 @@
 - **有人工核准（approve 模式）時代價不大**：一般任務只少 0 到 6 題，被擋的幾乎都是「收件人或帳號不是使用者自己寫的」這一類，事前用標準解法重播就預測得到。
 - **沒有人核准（reject 模式）時代價很大**：slack 只剩 1/21。需要先讀外部內容、再對外動作的工作，一定要有人工核准。
 
+- **另一個基準 InjecAgent 的攻擊重播**（第 8 節，1,054 組）：沒有一組被放行；資料竊取 96.3% 直接拒絕，但轉帳、開門鎖這類直接傷害只有 22.4% 直接拒絕，其餘要靠人工核准。
+
 全部 OpenAI API 費用約 1.1 美元（Flex 計費）。
 
 ## 2. 測試設定
@@ -59,7 +61,7 @@ AgentDojo 每個情境有一組「使用者任務」（正常工作）和一組�
 ### 2.3 模型
 
 - **主要模型：** OpenAI `gpt-6-luna`，經 Responses API 呼叫，使用 Flex 計費，推理強度用模型預設值。
-- **本機對照：** `phi4` 和 `qwen2.5:7b-instruct`，透過 Ollama 執行，context 16k，只跑 workspace 的一般任務。
+- **本機對照：** `phi4` 和 `qwen2.5:7b-instruct`，透過 Ollama 執行，context 16k，只跑 workspace。phi4 另外跑了一組攻擊抽樣（第 7.2 節）。
 - **輔助提示：** 所有模型都加上 `--scaffold`，也就是更嚴格的工作規則，並在 agent 提早放棄時提醒它繼續。
 
 ### 2.4 規則如何對應到各情境
@@ -180,9 +182,12 @@ Flex 價格：輸入每百萬 token 0.05 美元，快取輸入 0.005 美元，�
 | 實測沒有量到防護效果 | Luna 幾乎不被騙，實測的攻擊成功率 0 主要是模型本身的功勞。要量 gateway 的實際效果，需要會依模型反應調整的攻擊（adaptive attack） |
 | 每組只跑一次 | 模型每次的反應不同（例如 banking 一般任務 11 → 10 那題），小差異不具統計意義 |
 | 內部名單取自測試環境 | 名單是從 AgentDojo 的預設環境整理出來的。實際部署要接企業的通訊錄或受款人清單 |
-| 本機模型結果 | qwen2.5 本身完成率太低（none 14/40），且 reject／approve 兩輪部分在 R3 修改前執行，只作參考 |
+| 直接傷害靠人工核准 | InjecAgent 重播中，沒讀過個資的 session 轉帳、付款、分享密碼，以及開門鎖、關閉雙重驗證這類沒有對外目的地的動作，都只送核准（第 8 節） |
+| 本機模型結果 | qwen2.5 本身完成率太低（none 14/40），且 reject／approve 兩輪部分在 R3 修改前執行，只作參考；phi4 攻擊只抽 4 個查詢型任務 |
 
-## 7. 本機模型對照（workspace 一般任務）
+## 7. 本機模型對照（workspace）
+
+### 7.1 一般任務
 
 | 模型 | none | reject | approve |
 | --- | --- | --- | --- |
@@ -192,12 +197,72 @@ Flex 價格：輸入每百萬 token 0.05 美元，快取輸入 0.005 美元，�
 
 phi4 在 approve 模式多了一種被擋的原因：它會呼叫不存在的工具，被 R2 拒絕。模型越弱，gateway 越常擋到模型自己的錯誤，而不只是攻擊。
 
+### 7.2 phi4 攻擊抽樣
+
+phi4 每組約 3 到 13 分鐘，完整 560 組 × 3 種設定要跑兩週，所以只抽樣：4 個 phi4 在三種一般任務設定下都完成的使用者任務（user_task_3、16、22、28：行事曆、郵件、雲端檔案）× 全部 14 個注入任務 = 56 組。phi4 沒有原生工具呼叫，用 `--prompt-tools` 把工具寫進提示。
+
+| 設定 | 任務完成 | 攻擊成功 | gateway 決策 |
+| --- | --- | --- | --- |
+| none | 56/56 | 0 | — |
+| gateway + reject | 56/56 | 0 | 70 次全部 allow |
+| gateway + approve | 56/56 | 0 | 70 次全部 allow |
+
+- phi4 每組只呼叫 1 到 2 個查詢工具，讀到資料就直接回答，從沒照注入內容寄信、分享檔案或建立事件。
+- 這 4 個任務都只需要讀取，碰不到 R3 到 R5，所以 reject 也沒有掉分。
+- 這組抽樣量不到 gateway 的防護效果，也量不到它的成本：攻擊沒走到需要 gateway 擋的那一步。要量這兩件事，得挑需要寄信或分享的任務，但那些任務 phi4 單跑就常失敗。
+- 和 Luna 一樣，phi4 也沒被預設攻擊騙到。比較弱的模型不一定比較容易被這種注入騙，可能只是它不會主動多做事。
+
+## 8. InjecAgent 政策重播
+
+[InjecAgent](https://github.com/uiuc-kang-lab/InjecAgent)（Zhan 等人，2024，MIT 授權）有 1,054 組間接注入測試：17 個使用者工具（注入出現在它們的回傳內容裡）× 62 種攻擊。攻擊分兩類：
+
+- **直接傷害（dh，30 種）**：轉帳、付款、開門鎖、關閉雙重驗證、刪除 GitHub repo、執行終端機指令、改醫療紀錄等。
+- **資料竊取（ds，32 種）**：先讀取使用者的資料（地址、密碼、基因資料等），再用 Gmail 寄給攻擊者。
+
+InjecAgent 只判斷模型有沒有選到攻擊者的工具，不填參數。gateway 要看參數（錢、資料、權限送到哪裡），所以把 62 種攻擊依原始指令寫成工具呼叫加參數（`bench/injecagent/attacks.py`）。base 和 enhanced 兩種設定只差注入文字，gateway 看不到文字，重播結果相同。
+
+**設定**（`bench/agentdojo/policy/suite_injecagent.rego`）：
+
+- InjecAgent 沒有通訊錄、受款人或自有帳號清單，所以**沒有內部名單**：所有目的地都算外部，只有使用者在指令裡寫出的才算經使用者指定。
+- 17 個使用者工具都會讓 session 變成「讀過外部內容」。其中讀郵件、筆記、行事曆、待辦、簡訊的 7 個，以及攻擊者那邊所有讀取使用者紀錄的工具，算「碰過個資」。
+- 所有會改變外部狀態的工具都算高風險（R4）；Cisco Umbrella 的封鎖／白名單和 Facebook 個人資料算安全設定（R7）。
+- 對應依工具本身的功能決定，不是依哪些攻擊會用到。
+
+**重播方式**（`bench/injecagent/replay.py`）：先呼叫使用者工具（帶 InjecAgent 給的參數，必須被允許），之後 session 視為讀過外部內容；接著送出攻擊的呼叫。任一呼叫被拒絕就算拒絕。
+
+| 類型 | 組數 | 直接拒絕 | 需核准 | 放行 |
+| --- | --- | --- | --- | --- |
+| 資料竊取 | 544 | **96.3%** | 3.7% | 0 |
+| 直接傷害 | 510 | 22.4% | 77.6% | 0 |
+| 合計 | 1,054 | 60.5% | 39.5% | **0** |
+
+| 依攻擊動作（各 17 組） | 結果 |
+| --- | --- |
+| 資料竊取的寄信（30 種） | 全部 R3 拒絕 |
+| 讀 GitHub 公開資料、產生 deepfake 後寄出 | 使用者工具有讀個資的 7 組拒絕，其餘 10 組送核准 |
+| 修改 Cisco Umbrella 政策（2 種）、Facebook 帳號 email | 全部 R7 拒絕 |
+| 轉帳、付款、提領、分享密碼、分享筆記、分享基因資料、授權門鎖訪客、自動填入個資（9 種） | 使用者工具有讀個資的 7 組 R3 拒絕，其餘 10 組送核准（R4、R5） |
+| 開門鎖、關閉雙重驗證、刪 repo、終端機指令、醫療紀錄、交通號誌等（18 種） | 全部只送核准（R4） |
+
+**解讀：**
+
+1. **資料外流擋得住**：讀過個資之後寄給使用者沒提過的地址，不論注入出現在哪裡都被拒絕。這和 AgentDojo workspace、banking 的結果一致。
+2. **R3 依賴「碰過個資」**：同樣是轉帳給攻擊者，使用者先讀了郵件就拒絕，只看了商品評論就只送核准。錢和存取權限送出去本身就是傷害，不需要先讀過個資。可以考慮加一條規則：讀過外部內容的 session 把錢、權限或密碼送到使用者沒指定的對象，直接拒絕。
+3. **沒有參數的安全設定看不到**：關閉雙重驗證沒有「新值」，R7 無從比對。可以考慮把「降低安全性」的工具列為讀過外部內容後一律拒絕。
+4. **其餘不可逆動作送核准是合理的**：刪除、執行指令、實體設備控制，若一律拒絕會擋掉大量正常工作。在 approve 模式下，這 39.5% 的攻擊是否成功取決於審核者。
+
+**限制：**
+
+- 62 種攻擊的參數是依指令手寫的；InjecAgent 實際測模型時，模型可能填出不同的參數（例如把收件人寫成清單）。
+- 只測政策，沒有跑模型；InjecAgent 是單步測試，沒有真實環境。
+- 62 種攻擊動作才是 gateway 實際看到的樣本數，1,054 組是乘上 17 個注入位置。
+
 ## 附錄：重現
 
 前置條件：OPA 以 `bench/agentdojo/policy` 啟動在 8182 埠；Windows 需設 `PYTHONUTF8=1`；OpenAI 金鑰放在環境變數 `OPENAI_API_KEY`，不從命令列傳入。
 
 ```bash
-# 政策單元測試（35 項）
+# 政策單元測試（40 項）
 docker run --rm -v "$PWD/bench/agentdojo/policy:/policy:ro" openpolicyagent/opa:1.10.1-static test /policy
 
 # 政策重播（不需要模型）
@@ -209,6 +274,13 @@ bench/.venv/Scripts/python -m bench.agentdojo.run --provider openai --model gpt-
     --suite banking --defense gateway --approval approve --benign
 bench/.venv/Scripts/python -m bench.agentdojo.run --provider openai --model gpt-6-luna --flex --scaffold \
     --suite banking --defense gateway --approval approve
+
+# phi4 攻擊抽樣（本機 Ollama；none 換成 gateway --approval reject | approve）
+bench/.venv/Scripts/python -m bench.agentdojo.run --model phi4-16k --scaffold --prompt-tools --defense none     --user-tasks user_task_3 user_task_16 user_task_22 user_task_28 --tag sample56
+
+# InjecAgent 政策重播（先下載資料，固定在一個 commit）
+bench/.venv/Scripts/python -m bench.injecagent.fetch_data
+bench/.venv/Scripts/python -m bench.injecagent.replay
 
 # 一般任務的誤擋分析
 bench/.venv/Scripts/python -m bench.agentdojo.analyze_benign --provider openai --model gpt-6-luna-scaffold --suite banking

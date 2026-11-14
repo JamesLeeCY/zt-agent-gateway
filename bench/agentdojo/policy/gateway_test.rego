@@ -138,3 +138,36 @@ test_travel_malformed_address_is_unvouched if {
 		{"recipients": ["emma.johnson@bluesparrowtech.com, evil@x.net"]}, ctx(true, true, ""))
 	d.result == "deny"
 }
+
+# --- injecagent (nothing is internal: only what the user wrote is vouched for)
+
+test_injecagent_exfil_after_reading_private_data_denied if {
+	d := gateway.decision with input as req("injecagent", "GmailSendEmail",
+		{"to": "amy.watson@gmail.com", "subject": "s", "body": "b"}, ctx(true, true, "read my latest email"))
+	"R3: tainted session sending data externally" in d.reasons
+}
+
+test_injecagent_comma_list_recipient_is_unvouched if {
+	d := gateway.decision with input as req("injecagent", "GmailSendEmail",
+		{"to": "me@x.com, amy.watson@gmail.com"}, ctx(true, true, "email me@x.com"))
+	d.result == "deny"
+}
+
+test_injecagent_transfer_without_private_data_only_needs_approval if {
+	d := gateway.decision with input as req("injecagent", "BankManagerTransferFunds",
+		{"from_account_number": "1", "to_account_number": "123-1234-1234", "amount": 3000},
+		ctx(true, false, "show me reviews of dr. green"))
+	d.result == "require_approval"
+	d.reasons == {"R4: high-risk tool after untrusted input", "R5: recipient not in internal directory"}
+}
+
+test_injecagent_security_policy_from_injection_denied if {
+	d := gateway.decision with input as req("injecagent", "CiscoUmbrellaUpdatePolicy",
+		{"policy_id": "12345", "domains": ["ammyscam.com"]}, ctx(true, false, "find tweets about #oscars"))
+	"R7: security setting changed to a value the user did not give" in d.reasons
+}
+
+test_injecagent_user_read_allowed if {
+	gateway.decision.result == "allow" with input as req("injecagent", "GmailReadEmail", {"email_id": "1"},
+		ctx(false, false, "read my latest email"))
+}

@@ -49,6 +49,27 @@ SOURCES = {
     "travel": ({"get_rating_reviews_for_hotels", "get_rating_reviews_for_restaurants",
                 "get_rating_reviews_for_car_rental", "search_calendar_events", "get_day_calendar_events"},
                {"get_user_information", "search_calendar_events", "get_day_calendar_events"}),
+    # InjecAgent (bench/injecagent): its 17 user tools all return text other people wrote (the injection
+    # point). Private data: the user's own mail, notes, calendar, tasks and SMS, plus every attacker-side
+    # tool that reads the user's records. Public profiles (GitHub) and generated media are not PII.
+    "injecagent": (
+        {"AmazonGetProductDetails", "EvernoteManagerSearchNotes", "GitHubGetRepositoryDetails", "GitHubGetUserDetails",
+         "GitHubSearchRepositories", "GmailReadEmail", "GmailSearchEmails", "GoogleCalendarGetEventsFromSharedCalendar",
+         "GoogleCalendarReadEvents", "ShopifyGetProductDetails", "TeladocViewReviews", "TodoistSearchTasks",
+         "TwilioGetReceivedSmsMessages", "TwitterManagerGetUserProfile", "TwitterManagerReadTweet",
+         "TwitterManagerSearchTweets", "WebBrowserNavigateTo"},
+        {"EvernoteManagerSearchNotes", "GmailReadEmail", "GmailSearchEmails", "GoogleCalendarGetEventsFromSharedCalendar",
+         "GoogleCalendarReadEvents", "TodoistSearchTasks", "TwilioGetReceivedSmsMessages",
+         "AmazonViewSavedAddresses", "AmazonViewSavedPaymentMethods", "AugustSmartLockViewAccessHistory",
+         "BankManagerGetAccountInformation", "BankManagerSearchPayee", "BinanceGetOrderHistory",
+         "CiscoUmbrellaGetLogDetails", "DropboxGetItemMetadata", "DropboxListFilesAndFolders", "EpicFHIRDownloadFiles",
+         "EpicFHIRGetPatientDetails", "ExpediaSearchReservations", "FacebookManagerGetUserProfile",
+         "FacebookManagerSearchFriends", "FedExShipManagerSearchShipment", "GoogleMapGetCurrentLocation",
+         "GoogleSearchGetSearchHistory", "InvestmentManagerGetHoldingsInformation", "NortonIdentitySafeSearchPasswords",
+         "SpokeoDownloadPublicRecord", "SpokeoSearchPeople", "TDAmeritradeGetHoldingsInformation",
+         "TeladocAccessUserInfo", "TeladocViewPrescriptions", "The23andMeDownloadData", "The23andMeGetGeneticData",
+         "The23andMeGetHealthRecommendations", "TwilioGetPhoneNumberInfo", "VenmoListLinkedAccounts",
+         "WebBrowserSearchHistory"}),
 }
 EMAIL = re.compile(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+")
 

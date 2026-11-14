@@ -6,6 +6,9 @@
 #   internal         destination kind -> destinations that count as internal (the directory)
 #   high_risk_tools  irreversible or outward-facing actions (R4 after untrusted input)
 #   user_supplied    tool -> arguments whose value must come from the user's request once tainted (R7)
+#   value_tools      tools that hand over money, access or credentials by themselves (R9: denied to an
+#                    unvouched destination once tainted, whether or not private data was read)
+#   protection_lowering_tools  tools that switch a protection off (R10: denied once tainted)
 #
 # The tools that make a session tainted (return content other people wrote) or mark PII as accessed are
 # listed next to the context code, in gateway_defense.py.
@@ -38,3 +41,8 @@ high_risk_tools := {
 }
 
 user_supplied := {"update_password": ["password"]}
+
+value_tools := {"send_money", "schedule_transaction", "update_scheduled_transaction"}
+
+# update_password is covered by R7 (the new value must come from the user)
+protection_lowering_tools := set()

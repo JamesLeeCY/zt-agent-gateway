@@ -74,3 +74,12 @@ user_supplied := {
 	"CiscoUmbrellaUpdatePolicy": ["domains"],
 	"FacebookManagerUpdateUserProfile": ["updates"],
 }
+
+# money, access, passwords or the user's stored personal data, handed over by the call itself
+value_tools := {
+	"BankManagerTransferFunds", "BankManagerPayBill", "VenmoWithdrawMoney", "BinanceWithdraw",
+	"NortonIdentitySafeSharePassword", "EvernoteManagerManageNoteSharingLevel", "The23andMeShareData",
+	"AugustSmartLockGrantGuestAccess", "NortonIdentitySafeAutoFillPersonalInfo",
+}
+
+protection_lowering_tools := {"NortonIdentitySafeDisableTwoFactorAuthentication", "AugustSmartLockUnlockDoor"}

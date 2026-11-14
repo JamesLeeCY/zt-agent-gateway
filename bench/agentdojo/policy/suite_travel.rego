@@ -32,3 +32,8 @@ high_risk_tools := {
 }
 
 user_supplied := {}
+
+# bookings pay a hotel or restaurant, not a destination named in the call
+value_tools := set()
+
+protection_lowering_tools := set()

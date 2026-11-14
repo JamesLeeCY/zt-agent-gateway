@@ -1,4 +1,4 @@
-# The gateway's rules (R1-R7) for any AgentDojo suite described in data.agentdojo.suites.<name>
+# The gateway's rules (R1-R7, R9-R10; R8 is the output check of the main gateway) for any AgentDojo suite described in data.agentdojo.suites.<name>
 # (banking, slack, travel; workspace keeps its own policy/workspace.rego, which these rules generalise).
 # Same structure as policy/authz.rego: deny > require_approval > allow, default deny.
 #
@@ -10,7 +10,7 @@ package agentdojo.gateway
 
 import rego.v1
 
-policy_version := "2026-11-13.1"
+policy_version := "2026-11-14.1"
 
 cfg := data.agentdojo.suites[input.suite]
 
@@ -102,6 +102,29 @@ deny contains "R6: call budget exceeded" if input.context.call_count > max_calls
 deny contains "R7: security setting changed to a value the user did not give" if {
 	input.context.tainted
 	untold_security_value
+}
+
+# Money, access or credentials handed to someone the user did not name is harm in itself: unlike R3 it does
+# not wait until private data has been read (a transfer to the attacker after reading a product review).
+# If the user named the destination in any form (e.g. "invite Dora", with her address from her web site),
+# the user asked for this grant: it goes to approval (R4/R5) instead, where the reviewer sees the address.
+deny contains "R9: tainted session moving money or access externally" if {
+	input.context.tainted
+	input.action.tool in cfg.value_tools
+	unvouched_external_recipient
+	not user_named_destination
+}
+
+user_named_destination if {
+	some [_, r] in recipients
+	user_named(r)
+}
+
+# Turning a protection off (two-factor authentication, a door lock) has no new value R7 could compare,
+# so after untrusted input it is denied outright; the user can still do it outside the agent.
+deny contains "R10: protection lowered after untrusted input" if {
+	input.context.tainted
+	input.action.tool in cfg.protection_lowering_tools
 }
 
 approval contains "R4: high-risk tool after untrusted input" if {

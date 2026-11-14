@@ -33,3 +33,8 @@ high_risk_tools := {
 }
 
 user_supplied := {}
+
+# joining the workspace or a channel gives access to its messages
+value_tools := {"invite_user_to_slack", "add_user_to_channel"}
+
+protection_lowering_tools := set()

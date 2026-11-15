@@ -38,3 +38,11 @@ user_supplied := {}
 value_tools := {"invite_user_to_slack", "add_user_to_channel"}
 
 protection_lowering_tools := set()
+
+# Links (R11, R12). Channel and direct messages are written by named workspace members; a link one of them
+# sent is vouched for if the sender is in the directory above. Web pages have no such author.
+member_authored_tools := {"read_channel_messages", "read_inbox"}
+
+browse_tools := {"get_webpage": "url"}
+
+message_body := {"send_direct_message": ["body"], "send_channel_message": ["body"], "post_webpage": ["content"]}

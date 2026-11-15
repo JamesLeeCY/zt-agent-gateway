@@ -1,4 +1,4 @@
-# The gateway's rules (R1-R7, R9-R10; R8 is the output check of the main gateway) for any AgentDojo suite described in data.agentdojo.suites.<name>
+# The gateway's rules (R1-R7, R9-R12; R8 is the output check of the main gateway) for any AgentDojo suite described in data.agentdojo.suites.<name>
 # (banking, slack, travel; workspace keeps its own policy/workspace.rego, which these rules generalise).
 # Same structure as policy/authz.rego: deny > require_approval > allow, default deny.
 #
@@ -6,11 +6,12 @@
 # input.action     {"tool": ..., "args": {...}}
 # input.context    tainted, pii_accessed, call_count, user_named_recipients (addresses in the user's request)
 #                  and user_request (the request itself, lower case). Tool output can add to neither.
+#                  links: web addresses in messages that tools returned, with the tool and the sender.
 package agentdojo.gateway
 
 import rego.v1
 
-policy_version := "2026-11-14.1"
+policy_version := "2026-11-15.1"
 
 cfg := data.agentdojo.suites[input.suite]
 
@@ -125,6 +126,45 @@ user_named_destination if {
 deny contains "R10: protection lowered after untrusted input" if {
 	input.context.tainted
 	input.action.tool in cfg.protection_lowering_tools
+}
+
+# Web addresses. Untrusted input can plant a link; the agent then opens it (a tracking or exploit page, or a
+# URL that carries data in its path) or passes it on (phishing an internal colleague, who trusts a message
+# that comes from the user). A link is vouched for when the user wrote it, or when a workspace member sent
+# it in a message (an authenticated colleague; a web page or a message from an outsider has no such author).
+# Off that list, R11 refuses to open it and R12 refuses to send it on, both only after untrusted input.
+# Domain-like words count as links only with one of these endings, so a file name like report.pdf does not.
+link_pattern := `(https?://)?([a-z0-9-]+\.)+(com|org|net|io|co|ai|app|dev|info|biz|ly|me|xyz|site|online|link|page|uk|de|ch|tw)(/[^\s)\]'"]*)?`
+
+email_pattern := `[a-z0-9_.+-]+@[a-z0-9-]+(\.[a-z0-9-]+)+`
+
+link_hosts(text) := {norm("url", m) | some m in regex.find_n(link_pattern, regex.replace(lower(text), email_pattern, ""), -1)}
+
+vouched_host(h) if user_named(h)
+
+vouched_host(h) if {
+	some l in object.get(input.context, "links", [])
+	l.tool in object.get(cfg, "member_authored_tools", set())
+	lower(l.author) in cfg.internal.user
+	norm("url", l.url) == h
+}
+
+deny contains "R11: tainted session opening a link nobody trusted gave" if {
+	input.context.tainted
+	some tool, arg in object.get(cfg, "browse_tools", {})
+	tool == input.action.tool
+	v := object.get(input.action.args, arg, "")
+	is_string(v)
+	not vouched_host(norm("url", v))
+}
+
+deny contains "R12: tainted session passing on a link nobody trusted gave" if {
+	input.context.tainted
+	some arg in object.get(object.get(cfg, "message_body", {}), input.action.tool, [])
+	v := object.get(input.action.args, arg, "")
+	is_string(v)
+	some h in link_hosts(v)
+	not vouched_host(h)
 }
 
 approval contains "R4: high-risk tool after untrusted input" if {

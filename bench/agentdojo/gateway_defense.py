@@ -12,6 +12,8 @@ so nothing leaks between tasks:
                 it, so an injected address is never on this list
   user_request  the request itself, lower case (gateway.rego only: account numbers, names, web sites
                 and values the user wrote count as named)
+  links         web addresses in messages tool output returned, each with the tool and the message's
+                sender (gateway.rego vouches for a link only if a workspace member sent it)
 
 deny -> the call is not executed; the model gets an error message instead.
 require_approval -> there is no human in a benchmark, so `approval` decides: "reject" (strict: every
@@ -25,6 +27,7 @@ from ast import literal_eval
 from pathlib import Path
 
 import httpx
+import yaml
 from agentdojo.agent_pipeline.tool_execution import ToolsExecutor, is_string_list
 from agentdojo.types import ChatToolResultMessage, text_content_block_from_string
 
@@ -80,7 +83,37 @@ def named_recipients(user_request: str) -> list[str]:
 
 def initial_context(user_request: str) -> dict:
     return {"tainted": False, "pii_accessed": False, "call_count": 0,
-            "user_named_recipients": named_recipients(user_request), "user_request": user_request.lower()}
+            "user_named_recipients": named_recipients(user_request), "user_request": user_request.lower(),
+            "links": []}
+
+
+URL = re.compile(r"(?:https?://)?(?:[\w-]+\.)+[a-z]{2,}(?:/[^\s)\]'\"]*)?", re.I)
+
+
+def links_in(tool: str, output: str) -> list[dict]:
+    """Web addresses in the messages a tool returned (a list of {sender, body}), with their sender. Other
+    output (a web page) has no author the gateway can check, so its links are not recorded."""
+    try:
+        items = yaml.safe_load(output)
+    except yaml.YAMLError:
+        return []
+    out = []
+    for m in items if isinstance(items, list) else []:
+        if isinstance(m, dict) and isinstance(m.get("sender"), str) and isinstance(m.get("body"), str):
+            body = EMAIL.sub("", m["body"])
+            out += [{"tool": tool, "author": m["sender"], "url": u} for u in URL.findall(body)]
+    return out
+
+
+def run_for_links(runtime, env, call) -> list[dict]:
+    """Run a call in env (the policy replays have no pipeline) and return the links its output carries."""
+    from agentdojo.agent_pipeline.tool_execution import tool_result_to_str
+    result, error = runtime.run_function(env, call.function, dict(call.args))
+    return [] if error else links_in(call.function, tool_result_to_str(result))
+
+
+def result_text(msg) -> str:
+    return "".join(b.get("content") or "" for b in msg.get("content") or [] if isinstance(b, dict))
 
 
 class GatewayToolsExecutor(ToolsExecutor):
@@ -114,7 +147,9 @@ class GatewayToolsExecutor(ToolsExecutor):
         done = [m for m in messages if m["role"] == "tool"]
         executed = [m["tool_call"].function for m in done if m.get("error") is None]
         ctx = {**initial_context(query), "tainted": any(t in self.untrusted for t in executed),
-               "pii_accessed": any(t in self.pii for t in executed), "call_count": len(done)}
+               "pii_accessed": any(t in self.pii for t in executed), "call_count": len(done),
+               "links": [l for m in done if m.get("error") is None
+                         for l in links_in(m["tool_call"].function, result_text(m))]}
         results = []
         for call in messages[-1]["tool_calls"]:
             for k, v in call.args.items():
@@ -139,10 +174,11 @@ class GatewayToolsExecutor(ToolsExecutor):
             if res.get("error") is None:
                 ctx["tainted"] |= call.function in self.untrusted
                 ctx["pii_accessed"] |= call.function in self.pii
+                ctx["links"] = ctx["links"] + links_in(call.function, result_text(res))
         return query, runtime, env, [*messages, *results], extra_args
 
     def _log(self, tool, ctx, d, allowed):
         if self.log_path:
             with self.log_path.open("a", encoding="utf-8") as f:
                 f.write(json.dumps({"ts": time.time(), "task": self.task, "tool": tool,
-                                    **{k: v for k, v in ctx.items() if k not in ("user_named_recipients", "user_request")}, **d, "executed": allowed}) + "\n")
+                                    **{k: v for k, v in ctx.items() if k not in ("user_named_recipients", "user_request", "links")}, **d, "executed": allowed}) + "\n")

@@ -9,9 +9,10 @@ whether the recipients the gateway stops were written in the user's own request.
 import argparse
 import re
 
+from agentdojo.functions_runtime import FunctionsRuntime
 from agentdojo.task_suite.load_suites import get_suite
 
-from bench.agentdojo.gateway_defense import GatewayToolsExecutor, initial_context
+from bench.agentdojo.gateway_defense import GatewayToolsExecutor, initial_context, run_for_links
 
 EGRESS = {"send_email": ["recipients", "cc", "bcc"], "share_file": ["email"],
           "create_calendar_event": ["participants"], "add_calendar_event_participants": ["participants"]}
@@ -34,11 +35,13 @@ def main():
     suite = get_suite(a.version, a.suite)
     gw = GatewayToolsExecutor(a.opa_url, suite=a.suite)
     env = suite.load_and_inject_default_environment({})
+    runtime = FunctionsRuntime(suite.tools)
     counts = {"deny": [], "require_approval": []}
     named = {"deny": 0, "require_approval": 0, "total": {"deny": 0, "require_approval": 0}}
     for tid, task in sorted(suite.user_tasks.items(), key=lambda kv: int(kv[0].rsplit("_", 1)[1])):
         ctx = initial_context(task.PROMPT)
         worst, notes = "allow", []
+        task_env = env.model_copy(deep=True)  # the calls run in it, so later ones see the links earlier ones read
         for call in task.ground_truth(env.model_copy(deep=True)):
             ctx["call_count"] += 1
             d = gw.decide(call.function, dict(call.args), ctx)
@@ -53,6 +56,7 @@ def main():
                     worst = d["result"]
             ctx["tainted"] |= call.function in gw.untrusted
             ctx["pii_accessed"] |= call.function in gw.pii
+            ctx["links"] = ctx["links"] + run_for_links(runtime, task_env, call)
         if worst != "allow":
             counts[worst].append(tid)
             print(f"{tid:13} {worst:16} " + "; ".join(notes))

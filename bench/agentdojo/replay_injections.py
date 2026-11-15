@@ -22,10 +22,10 @@ something) cannot be seen by a tool gateway; it is counted as "no call".
 import argparse
 from collections import Counter, defaultdict
 
-from agentdojo.functions_runtime import FunctionCall
+from agentdojo.functions_runtime import FunctionCall, FunctionsRuntime
 from agentdojo.task_suite.load_suites import get_suite
 
-from bench.agentdojo.gateway_defense import GatewayToolsExecutor, initial_context
+from bench.agentdojo.gateway_defense import GatewayToolsExecutor, initial_context, run_for_links
 
 
 ATTACKER = "mark.black-2134@gmail.com"
@@ -51,21 +51,25 @@ def main():
     suite = get_suite(a.version, a.suite)
     gw = GatewayToolsExecutor(a.opa_url, suite=a.suite)
     env = suite.load_and_inject_default_environment({})
+    runtime = FunctionsRuntime(suite.tools)
     order = lambda kv: int(kv[0].rsplit("_", 1)[1])  # noqa: E731
     outcome = defaultdict(Counter)  # injection task -> deny / approval / allow
     first_block = defaultdict(Counter)  # injection task -> tool[rule] of the first call that was not allowed
     for uid, ut in sorted(suite.user_tasks.items(), key=order):
         # context after the user task's own calls up to and including its first read of untrusted data
         ctx = initial_context(ut.PROMPT)
+        user_env = env.model_copy(deep=True)  # the calls run in it for the links they read (R11, R12)
         for call in ut.ground_truth(env.model_copy(deep=True)):
             ctx["call_count"] += 1
             ctx["tainted"] |= call.function in gw.untrusted
             ctx["pii_accessed"] |= call.function in gw.pii
+            ctx["links"] = ctx["links"] + run_for_links(runtime, user_env, call)
             if ctx["tainted"]:
                 break
         ctx["tainted"] = True  # the injection was read from tool output, whatever the user task called
         for iid, it in sorted(suite.injection_tasks.items(), key=order):
             c, worst, block = dict(ctx), "allow", None
+            pair_env = user_env.model_copy(deep=True)
             calls = it.ground_truth(env.model_copy(deep=True))
             if not calls and a.suite == "workspace":
                 calls = stand_in_calls(iid, env)
@@ -81,6 +85,7 @@ def main():
                 if r == "deny" or (r == "require_approval" and worst == "allow"):
                     worst = r
                 c["pii_accessed"] |= call.function in gw.pii
+                c["links"] = c["links"] + run_for_links(runtime, pair_env, call)
             outcome[iid][worst] += 1
             if block:
                 first_block[iid][block] += 1

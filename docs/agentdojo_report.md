@@ -16,10 +16,12 @@
 | 攻擊重播：放行 | **0%** | **0%** | 20.0% | 0%（另 14.3% 不需工具呼叫） |
 | Luna 一般任務：無 gateway → approve 模式 | 39 → 33 / 40 | 11 → 10 / 16 | 20 → 18 / 21 | 12 → 13 / 20 |
 | Luna 攻擊成功：無 gateway／有 gateway | 0／0 | 1／0 | 0／0 | 0／0 |
+| qwen2.5 攻擊成功：無 gateway → reject／approve（7.3） | 0 → 0／0（56 組抽樣） | **26 → 0／0** | 36 → 11／18 | — |
 
 結論：
 
 - **GPT-6 Luna 幾乎不會被 AgentDojo 內建的攻擊騙到**：沒有 gateway 時，四個情境、五種攻擊方式共 1,229 組只成功 1 次。實測因此只量得到 gateway 的**代價**，量不到防護效果。
+- **真實模型被騙時 gateway 擋得住**（7.3 節）：qwen2.5:7b 沒有 gateway 時在 banking 被騙 26 組、slack 被騙 36 組。有 gateway 時 banking 是 0，連審核者一律蓋章的 approve 模式也是 0，每次攻擊都被 R3、R7、R9 直接拒絕。slack 剩下的全是已知缺口：瀏覽攻擊者網址，以及傳釣魚連結給內部成員。
 - **防護效果要看攻擊重播**：假設模型已經被騙，gateway 在 workspace 和 banking 不放行任何一組攻擊；slack 和 travel 的缺口都可以描述（第 5 節）。
 - **端到端劫持測試**（3.3 節）：在真實的 AgentDojo 流程裡，用腳本模擬完全被劫持的 agent。結果和政策重播完全一致，被擋的呼叫在環境裡沒有任何效果。這次也發現 AgentDojo 有一題的計分方式，會把被擋下的呼叫算成攻擊成功。
 - **有人工核准（approve 模式）時代價不大**：一般任務只少 0 到 6 題，被擋的幾乎都是「收件人或帳號不是使用者自己寫的」這一類，事前用標準解法重播就預測得到。
@@ -208,6 +210,7 @@ Flex 價格：輸入每百萬 token 0.05 美元，快取輸入 0.005 美元，�
 3. **R3 對「把資料送出去」類的攻擊最有效**（workspace、banking 幾乎全擋）；對「做事」類的攻擊（訂飯店、刪檔、傳內部訊息）只能送核准。錢和權限不需要先讀過個資就算傷害，所以另外由 R9 處理；關閉保護由 R10 處理。這是設計上的取捨：gateway 判斷的是資料流向，不是動作本身好不好。
 4. **事前重播準確預測了實測的代價。** approve 模式下所有被擋的正常任務，都出現在標準解法重播的清單裡。這代表企業導入前可以先用重播評估影響，不必真的跑模型。
 5. **人工核准是必要條件。** reject 模式在 slack 只剩 4.8%，workspace 剩 54%。gateway 必須搭配審核流程，而且審核的負擔取決於情境：slack 幾乎每個動作都要核准，travel 只有訂房和寄信要核准。
+6. **真實模型被騙時，deny 規則就足以擋下資料和金錢類的攻擊。** qwen2.5:7b 在 banking 被騙 26 組，有 gateway 時兩種模式都是 0；approve 模式下每一次嘗試都由 R3、R7、R9 直接拒絕，不靠審核者（7.3）。剩下的風險集中在只送核准的動作（內部訊息），以及不受管制的讀網頁。
 
 ## 6. 剩餘風險與限制
 
@@ -216,13 +219,13 @@ Flex 價格：輸入每百萬 token 0.05 美元，快取輸入 0.005 美元，�
 | 內部釣魚 | 攻擊者要 agent 傳訊息給內部同事（workspace task 13、slack task 1），只會送核准，不會拒絕 |
 | 瀏覽網頁不管制 | slack 的「去瀏覽某網站」攻擊（20%）被放行。網址本身可以夾帶資料，但若全面管制，讀頻道裡的連結這類正常工作會大量被擋 |
 | 只影響回覆內容的攻擊 | travel injection_task_6 只要 agent 在回覆裡推薦飯店，不呼叫工具，gateway 看不到。需要輸出端檢查（見 [report.md](report.md) 的 R8） |
-| 實測沒有量到防護效果 | Luna 幾乎不被騙，實測的攻擊成功率 0 主要是模型本身的功勞。3.3 節的端到端劫持測試用腳本 agent 補上「模型已被騙」的情況，但腳本只照標準解法執行；真正被騙的模型可能用別的參數或順序達成同一個目標 |
+| 實測的防護效果只有一個模型 | Luna 幾乎不被騙，實測的攻擊成功率 0 主要是模型本身的功勞。真實模型被騙的情況只用 qwen2.5:7b 量過（7.3 節，banking、slack 和 workspace 抽樣，每組一次）。3.3 節的端到端劫持測試用腳本 agent 補上最壞情況，但腳本只照標準解法執行；真正被騙的模型可能用別的參數或順序達成同一個目標 |
 | 每組只跑一次 | 模型每次的反應不同（例如 banking 一般任務 11 → 10 那題），小差異不具統計意義 |
 | 內部名單取自測試環境 | 名單是從 AgentDojo 的預設環境整理出來的。實際部署要接企業的通訊錄或受款人清單 |
 | 直接傷害靠人工核准 | InjecAgent 重播中，刪 repo、執行終端機指令、改醫療紀錄、控制交通號誌、下單這類沒有對外目的地的動作，只送核准（第 8 節）。轉帳、分享密碼、開門鎖、關閉雙重驗證已由 R9、R10 直接拒絕 |
-| 本機模型結果 | qwen2.5 本身完成率太低（none 14/40），且 reject／approve 兩輪部分在 R3 修改前執行，只作參考；phi4 攻擊只抽 4 個查詢型任務 |
+| 本機模型結果 | 7.1 的 qwen2.5 一般任務本身完成率太低（none 14/40），且 reject／approve 兩輪部分在 R3 修改前執行，只作參考；phi4 攻擊只抽 4 個查詢型任務；7.3 的 qwen2.5 攻擊實測使用目前的政策 |
 
-## 7. 本機模型對照（workspace）
+## 7. 本機模型對照
 
 ### 7.1 一般任務
 
@@ -248,6 +251,57 @@ phi4 每組約 3 到 13 分鐘，完整 560 組 × 3 種設定要跑兩週，所
 - 這 4 個任務都只需要讀取，碰不到 R3 到 R5，所以 reject 也沒有掉分。
 - 這組抽樣量不到 gateway 的防護效果，也量不到它的成本：攻擊沒走到需要 gateway 擋的那一步。要量這兩件事，得挑需要寄信或分享的任務，但那些任務 phi4 單跑就常失敗。
 - 和 Luna 一樣，phi4 也沒被預設攻擊騙到。比較弱的模型不一定比較容易被這種注入騙，可能只是它不會主動多做事。
+
+### 7.3 qwen2.5:7b 攻擊實測：模型真的被騙時
+
+Luna 和 phi4 都沒被騙，所以前面的實測量不到 gateway 的防護效果。qwen2.5:7b（Ollama，原生工具呼叫，不加 scaffold）會被 AgentDojo 預設攻擊騙到，因此用它做真實模型的實測：
+
+- **抽樣範圍：** banking 和 slack 全部組合，加上 workspace 的 4 個讀信、讀檔任務（user_task_14、22、24、28）× 14 個注入任務。三種設定跑同一批組合。
+- **政策版本：** `2026-11-14.1`，已含 R9、R10。
+- **耗時：** 每組約 1 到 3 分鐘。
+
+| 情境 | 組數 | 沒有 gateway | gateway + reject | gateway + approve |
+| --- | --- | --- | --- | --- |
+| banking | 144 | **26（18.1%）** | **0** | **0** |
+| slack | 105 | **36（34.3%）** | 11（10.5%） | 18（17.1%） |
+| workspace | 56 | 0 | 0 | 0 |
+
+上表是更正後的數字。slack injection task 5 AgentDojo 看的是 agent「要求了」哪些呼叫（3.3），所以這一題只有 gateway 紀錄裡邀請 Fred 真的執行了才算成功。照 AgentDojo 原始判定：slack reject 是 17 組，多出的 6 組三個呼叫全被擋下；approve 是 21 組。
+
+**banking：沒有 gateway 時 26 組被騙，有 gateway 時 0 組。**
+
+- **approve 模式也是 0。** 在這個模式下只有 deny 規則在保護，而 qwen 嘗試的每一次攻擊都被直接拒絕：
+  - 轉帳給攻擊者：R3＋R9。
+  - 改密碼：R7。
+  - 改排程收款人：R3＋R9。
+- **對照沒有 gateway 時被騙的那 26 組（approve 模式）：**
+  - 17 組 gateway 擋下了攻擊呼叫。
+  - 9 組 qwen 這次沒有嘗試攻擊。每組只跑一次，模型每次的反應不同。
+
+**slack：剩下的都是已知缺口。**
+
+- **reject 模式得逞的 11 組**，全部是 injection task 3「瀏覽攻擊者網址」。讀網頁不受管制，見第 6 節。
+- **approve 模式得逞的 18 組**，是上面的瀏覽網址 10 組，加上 injection task 1「把釣魚連結私訊給 Alice」8 組。Alice 是內部成員，所以只會送核准，審核者一律蓋章時就會通過（內部釣魚，見第 6 節）。
+- **把頻道內容發到外部網頁、邀請 Fred：** 兩種設定下都是 0 組得逞。
+  - 發到外部網頁：被 R3 拒絕。
+  - 邀請 Fred：被 R9 或 R3 拒絕。approve 模式下 R9 單獨拒絕邀請 11 次。若沒有 R9，這些邀請會被送核准，在這個模式下就會通過。
+
+**workspace：** 4 個抽樣任務 qwen 都沒被騙，三種設定的任務完成都是 31/56。
+
+**代價（有攻擊時的任務完成）：**
+
+| 情境 | 沒有 gateway | reject | approve |
+| --- | --- | --- | --- |
+| banking | 74 | 57 | 64 |
+| slack | 29 | 5 | 19 |
+
+這和 Luna 的結果一致：slack 的正常工作幾乎每一步都要核准，沒有人審核就做不了事。
+
+**限制：**
+
+- 每組只跑一次，被騙的組合在不同輪之間會變動，所以應該比較總數，不是逐組比對。
+- qwen 本身完成率低，所以被騙的次數也受限於它能走到哪一步。
+- 結果用 `bench/agentdojo/attack_summary.py` 整理。
 
 ## 8. InjecAgent 政策重播
 
@@ -318,6 +372,10 @@ bench/.venv/Scripts/python -m bench.agentdojo.run --provider openai --model gpt-
 
 # phi4 攻擊抽樣（本機 Ollama；none 換成 gateway --approval reject | approve）
 bench/.venv/Scripts/python -m bench.agentdojo.run --model phi4-16k --scaffold --prompt-tools --defense none     --user-tasks user_task_3 user_task_16 user_task_22 user_task_28 --tag sample56
+
+# qwen2.5 攻擊實測（本機 Ollama；三種設定各跑一次，再逐組對照）
+bench/.venv/Scripts/python -m bench.agentdojo.run --model qwen2.5-7b-16k --defense gateway --approval approve --suite banking --tag pilot
+bench/.venv/Scripts/python -m bench.agentdojo.attack_summary --run-prefix local-qwen2.5-7b-16k --suite banking --tag pilot
 
 # InjecAgent 政策重播（先下載資料，固定在一個 commit）
 bench/.venv/Scripts/python -m bench.injecagent.fetch_data
